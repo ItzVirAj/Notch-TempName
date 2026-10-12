@@ -268,6 +268,7 @@ export default function Notch({
           stroke="transparent"
           strokeWidth={hitStrokeWidth}
           className="pointer-events-auto cursor-pointer"
+          onClick={onClick}
         />
 
         {/* Visible notch vector path */}
@@ -275,6 +276,7 @@ export default function Notch({
           d={pathD}
           fill="#000000"
           className="pointer-events-auto cursor-pointer"
+          onClick={onClick}
         />
       </svg>
 
@@ -314,9 +316,12 @@ export default function Notch({
                   y: { delay: 0, duration: 0.06, ease: "easeIn" },
                 }
           }
-          className="w-full h-full flex items-center justify-center pointer-events-none px-3"
+          className={`w-full h-full flex items-center justify-center px-3 ${
+            mode === "peek" ? "pointer-events-auto cursor-pointer" : "pointer-events-none"
+          }`}
+          onClick={onClick}
         >
-          {mediaSnapshot.hasSession ? (
+          {mediaSnapshot.hasSession && mediaSnapshot.title ? (
             <div
               style={{
                 display: "flex",
@@ -379,12 +384,61 @@ export default function Notch({
                   whiteSpace: "nowrap",
                 }}
               >
-                {mediaSnapshot.title
-                  ? `${mediaSnapshot.title}${mediaSnapshot.artist ? ` - ${mediaSnapshot.artist}` : ""}`
-                  : "testnotch"}
+                {mediaSnapshot.title}
+                {mediaSnapshot.artist ? ` - ${mediaSnapshot.artist}` : ""}
               </span>
             </div>
-          ) : null}
+          ) : (
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+                maxWidth: "100%",
+                overflow: "hidden",
+                padding: "0 4px",
+              }}
+            >
+              <div
+                style={{
+                  width: "20px",
+                  height: "20px",
+                  borderRadius: "4px",
+                  backgroundColor: "rgba(255, 255, 255, 0.10)",
+                  flexShrink: 0,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <svg
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="rgba(255, 255, 255, 0.6)"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M9 18V5l12-2v13" />
+                  <circle cx="6" cy="18" r="3" />
+                  <circle cx="18" cy="16" r="3" />
+                </svg>
+              </div>
+              <span
+                style={{
+                  fontSize: "12px",
+                  fontWeight: 500,
+                  color: "rgba(255, 255, 255, 0.75)",
+                  letterSpacing: "-0.01em",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                Play something
+              </span>
+            </div>
+          )}
         </motion.div>
 
         {/* 2. Expanded Content: interactive media player UI */}

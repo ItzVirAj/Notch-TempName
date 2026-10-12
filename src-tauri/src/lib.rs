@@ -28,6 +28,10 @@ pub fn run() {
             modules::media::media_previous,
             modules::media::media_get_volume,
             modules::media::media_set_volume,
+            modules::system::system_get_controls,
+            modules::system::system_toggle_wifi,
+            modules::system::system_toggle_bluetooth,
+            modules::system::system_toggle_energy_saver,
         ])
         .setup(|app| {
             let app_handle = app.handle();

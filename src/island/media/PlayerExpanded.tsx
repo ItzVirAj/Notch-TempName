@@ -40,13 +40,77 @@ export function PlayerExpanded({ isExpanded = true }: PlayerExpandedProps) {
   // --------------------------------------------------------------------------
   // Realtime System States: Wi-Fi, Bluetooth, Energy Saver, Battery, Volume
   // --------------------------------------------------------------------------
+  interface SystemControlsState {
+    wifiEnabled: boolean;
+    wifiName: string | null;
+    bluetoothEnabled: boolean;
+    energySaverEnabled: boolean;
+    batteryLevel: number;
+    isCharging: boolean;
+  }
+
   const [isWifiOn, setIsWifiOn] = useState(true);
-  const [isBluetoothOn, setIsBluetoothOn] = useState(true);
+  const [wifiName, setWifiName] = useState<string>("Connected");
+  const [isBluetoothOn, setIsBluetoothOn] = useState(false);
   const [isEnergySaverOn, setIsEnergySaverOn] = useState(false);
 
   // Realtime Battery API (Navigator Battery or desktop fallback)
   const [batteryLevel, setBatteryLevel] = useState<number>(1.0);
   const [isCharging, setIsCharging] = useState<boolean>(true);
+
+  const fetchSystemControls = useCallback(() => {
+    invoke<SystemControlsState>("system_get_controls")
+      .then((res) => {
+        if (res) {
+          setIsWifiOn(res.wifiEnabled);
+          setWifiName(res.wifiName || (res.wifiEnabled ? "Connected" : "Off"));
+          setIsBluetoothOn(res.bluetoothEnabled);
+          setIsEnergySaverOn(res.energySaverEnabled);
+          if (typeof res.batteryLevel === "number" && !isNaN(res.batteryLevel)) {
+            setBatteryLevel(res.batteryLevel);
+          }
+          setIsCharging(res.isCharging);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    fetchSystemControls();
+  }, [fetchSystemControls]);
+
+  useEffect(() => {
+    if (!isExpanded) return;
+    fetchSystemControls();
+    const timer = window.setInterval(fetchSystemControls, 2500);
+    return () => window.clearInterval(timer);
+  }, [isExpanded, fetchSystemControls]);
+
+  const handleToggleWifi = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const next = !isWifiOn;
+    setIsWifiOn(next);
+    invoke("system_toggle_wifi", { enable: next })
+      .then(() => fetchSystemControls())
+      .catch(() => {});
+  };
+
+  const handleToggleBluetooth = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const next = !isBluetoothOn;
+    setIsBluetoothOn(next);
+    invoke("system_toggle_bluetooth", { enable: next })
+      .then(() => fetchSystemControls())
+      .catch(() => {});
+  };
+
+  const handleToggleEnergySaver = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsEnergySaverOn(!isEnergySaverOn);
+    invoke("system_toggle_energy_saver")
+      .then(() => fetchSystemControls())
+      .catch(() => {});
+  };
 
   useEffect(() => {
     let batteryInstance: any = null;
@@ -230,9 +294,12 @@ export function PlayerExpanded({ isExpanded = true }: PlayerExpandedProps) {
     } catch {}
   };
 
-  const effectiveDuration = durationMs > 0 ? durationMs : 256000;
-  const effectivePosition = displayPositionMs > 0 ? displayPositionMs : (hasSession ? 0 : 3000);
-  const scrubRatio = Math.max(0, Math.min(1, effectivePosition / effectiveDuration));
+  const isPlaceholder = !hasSession || !title;
+  const effectiveTitle = isPlaceholder ? "Play something" : title;
+  const effectiveArtist = isPlaceholder ? "No music playing" : (artist || "Unknown artist");
+  const effectiveDuration = isPlaceholder ? 0 : (durationMs > 0 ? durationMs : 0);
+  const effectivePosition = isPlaceholder ? 0 : (displayPositionMs > 0 ? displayPositionMs : 0);
+  const scrubRatio = effectiveDuration > 0 ? Math.max(0, Math.min(1, effectivePosition / effectiveDuration)) : 0;
 
   // Apple HIG System Accent Colors
   const APPLE_BLUE = "#0A84FF";
@@ -373,22 +440,24 @@ export function PlayerExpanded({ isExpanded = true }: PlayerExpandedProps) {
             <span style={{ fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
               {Math.round(batteryLevel * 100)}%
             </span>
-            <div
-              style={{
-                width: "16px",
-                height: "16px",
-                borderRadius: "50%",
-                backgroundColor: APPLE_GREEN,
-                color: "#000000",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: "10px",
-                fontWeight: 900,
-              }}
-            >
-              ⚡
-            </div>
+            {isCharging && (
+              <div
+                style={{
+                  width: "16px",
+                  height: "16px",
+                  borderRadius: "50%",
+                  backgroundColor: APPLE_GREEN,
+                  color: "#000000",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: "10px",
+                  fontWeight: 900,
+                }}
+              >
+                ⚡
+              </div>
+            )}
           </div>
 
           {/* Pin Button */}
@@ -564,7 +633,7 @@ export function PlayerExpanded({ isExpanded = true }: PlayerExpandedProps) {
                   textOverflow: "ellipsis",
                 }}
               >
-                {hasSession && title ? title : "Am I Dreaming (Metr..."}
+                {effectiveTitle}
               </div>
               <div
                 style={{
@@ -576,7 +645,7 @@ export function PlayerExpanded({ isExpanded = true }: PlayerExpandedProps) {
                   marginTop: "2px",
                 }}
               >
-                {hasSession && artist ? artist : "Metro Boomin"}
+                {effectiveArtist}
               </div>
             </div>
           </div>
@@ -781,10 +850,7 @@ export function PlayerExpanded({ isExpanded = true }: PlayerExpandedProps) {
           <div style={{ display: "flex", gap: "8px", width: "100%" }}>
             {/* Wi-Fi Tile */}
             <div
-              onClick={(e) => {
-                e.stopPropagation();
-                setIsWifiOn(!isWifiOn);
-              }}
+              onClick={handleToggleWifi}
               style={{
                 flex: 1,
                 height: "46px",
@@ -823,17 +889,14 @@ export function PlayerExpanded({ isExpanded = true }: PlayerExpandedProps) {
               <div style={{ flex: 1, minWidth: 0, lineHeight: 1.15 }}>
                 <div style={{ fontSize: "12px", fontWeight: 700 }}>Wi-Fi</div>
                 <div style={{ fontSize: "10px", opacity: 0.75, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                  {isWifiOn ? "Connected" : "Off"}
+                  {isWifiOn ? (wifiName || "Connected") : "Off"}
                 </div>
               </div>
             </div>
 
             {/* Bluetooth Tile */}
             <div
-              onClick={(e) => {
-                e.stopPropagation();
-                setIsBluetoothOn(!isBluetoothOn);
-              }}
+              onClick={handleToggleBluetooth}
               style={{
                 flex: 1,
                 height: "46px",
@@ -1003,10 +1066,7 @@ export function PlayerExpanded({ isExpanded = true }: PlayerExpandedProps) {
 
             {/* Energy Saver Toggle */}
             <div
-              onClick={(e) => {
-                e.stopPropagation();
-                setIsEnergySaverOn(!isEnergySaverOn);
-              }}
+              onClick={handleToggleEnergySaver}
               style={{
                 flex: 1,
                 height: "46px",

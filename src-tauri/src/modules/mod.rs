@@ -5,3 +5,4 @@ pub mod persistence;
 pub mod tray;
 pub mod window;
 pub mod media;
+pub mod system;
