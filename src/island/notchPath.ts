@@ -1,8 +1,8 @@
 import {
-  DEFAULT_BOTTOM_RADIUS,
   DEFAULT_FLARE_RADIUS,
-  DEFAULT_NOTCH_HEIGHT,
-  DEFAULT_NOTCH_WIDTH,
+  IDLE_BOTTOM_RADIUS,
+  IDLE_NOTCH_HEIGHT,
+  IDLE_NOTCH_WIDTH,
   ISLAND_TOP_GAP,
   type NotchVariant,
 } from "./constants";
@@ -31,7 +31,11 @@ export interface NotchPathParams {
  *    to approximate continuous squircle curvature with C1/tangent continuity
  *    at every transition between straight edges and curves.
  *
- * 3. 'notch' Variant (Screen-merged):
+ * 3. Clamping for Spring Undershoot / Overshoot:
+ *    Inputs are clamped so spring physics oscillations can never yield negative
+ *    dimensions or radii exceeding available geometry.
+ *
+ * 4. 'notch' Variant (Screen-merged):
  *    - Extends 1px above y = 0 (y = -1) to prevent subpixel anti-aliasing seams at the top edge.
  *    - Left flare (C): concave curve from (0, -1) down to (flareRadius, flareRadius).
  *    - Left side (L): straight vertical line down to (flareRadius, height - bottomRadius).
@@ -42,7 +46,7 @@ export interface NotchPathParams {
  *    - Right flare (C): concave curve outward to (totalWidth, -1).
  *    - Top edge (L): straight horizontal line across to (0, -1).
  *
- * 4. 'island' Variant (Floating Pill):
+ * 5. 'island' Variant (Floating Pill):
  *    - Floats detached with `topGap` (default 6px) from the screen edge.
  *    - Fully rounded convex corners (top-left, bottom-left, bottom-right, top-right).
  *    - Symmetrically maps to the same 10-command sequence for seamless morphing.
@@ -55,12 +59,17 @@ function f(n: number): string {
 }
 
 export function buildNotchPath(params?: NotchPathParams): string {
-  const width = params?.width ?? DEFAULT_NOTCH_WIDTH;
-  const height = params?.height ?? DEFAULT_NOTCH_HEIGHT;
-  const bottomRadius = params?.bottomRadius ?? DEFAULT_BOTTOM_RADIUS;
-  const flareRadius = params?.flareRadius ?? DEFAULT_FLARE_RADIUS;
+  const rawWidth = params?.width ?? IDLE_NOTCH_WIDTH;
+  const rawHeight = params?.height ?? IDLE_NOTCH_HEIGHT;
+  const rawBottomR = params?.bottomRadius ?? IDLE_BOTTOM_RADIUS;
+  const flareRadius = Math.max(0, params?.flareRadius ?? DEFAULT_FLARE_RADIUS);
   const variant = params?.variant ?? "notch";
-  const topGap = params?.topGap ?? ISLAND_TOP_GAP;
+  const topGap = Math.max(0, params?.topGap ?? ISLAND_TOP_GAP);
+
+  // Clamp sizes to ensure spring undershoot never creates degenerate dimensions
+  const width = Math.max(20, rawWidth);
+  const height = Math.max(10, rawHeight);
+  const bottomRadius = Math.max(0, Math.min(rawBottomR, width / 2, height / 2));
 
   if (variant === "notch") {
     const totalWidth = width + 2 * flareRadius;
@@ -68,7 +77,10 @@ export function buildNotchPath(params?: NotchPathParams): string {
     const yBottom = height;
     const xLeft = flareRadius;
     const xRight = flareRadius + width;
-    const effectiveBottomR = Math.min(bottomRadius, height, width / 2);
+
+    // Ensure bottom radius does not collide with the flare radius vertically
+    const maxBottomR = Math.max(0, height - flareRadius);
+    const effectiveBottomR = Math.min(bottomRadius, maxBottomR, width / 2);
 
     // Left flare control points (concave: horizontal at yTop -> vertical at xLeft)
     const lfCp1x = K_BEZIER * flareRadius;
