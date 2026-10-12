@@ -24,7 +24,8 @@
         "skipTaskbar": true,
         "visible": false,
         "focus": false,
-        "focusable": false
+        "focusable": false,
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,MediaRouter,Translate,OptimizationHints --in-process-gpu --disable-background-networking"
       }
     ],
     "security": {
