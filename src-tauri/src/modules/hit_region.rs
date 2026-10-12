@@ -4,14 +4,15 @@ use super::window::{WINDOW_HEIGHT, WINDOW_WIDTH};
 
 // Shared sizing constants matching src/island/constants.ts
 pub const IDLE_NOTCH_WIDTH: f64 = 200.0;
+pub const IDLE_NOTCH_HEIGHT: f64 = 18.0;
 pub const FLARE_RADIUS: f64 = 12.0;
-pub const HIT_PADDING_IDLE: f64 = 8.0;
-pub const HIT_OVERSHOOT_HEADROOM: f64 = 12.0;
+pub const HIT_PADDING_IDLE: f64 = 1.0;
+pub const HIT_OVERSHOOT_HEADROOM: f64 = 1.0;
 
-// Matches calculateHitRegionDimensions(shapeWidth = 224, shapeHeight = 32, isIdle = true)
+// Matches calculateHitRegionDimensions(shapeWidth = 224, shapeHeight = 18, isIdle = true)
 pub const INITIAL_IDLE_WIDTH: f64 =
-    IDLE_NOTCH_WIDTH + (FLARE_RADIUS * 2.0) + (HIT_PADDING_IDLE * 2.0) + (HIT_OVERSHOOT_HEADROOM * 2.0); // 264.0
-pub const INITIAL_IDLE_HEIGHT: f64 = 32.0 + HIT_PADDING_IDLE + HIT_OVERSHOOT_HEADROOM; // 52.0
+    IDLE_NOTCH_WIDTH + (FLARE_RADIUS * 2.0) + (HIT_PADDING_IDLE * 2.0) + (HIT_OVERSHOOT_HEADROOM * 2.0); // 228.0
+pub const INITIAL_IDLE_HEIGHT: f64 = IDLE_NOTCH_HEIGHT + HIT_PADDING_IDLE + HIT_OVERSHOOT_HEADROOM; // 20.0
 
 /// Sets the native Win32 window region to a rectangle bounding the interactive notch,
 /// centered horizontally at the top edge of the window.
