@@ -1,10 +1,18 @@
-// TEMP DEBUG: remove in notch step
+import Notch from "./island/Notch";
+
+// Set to false to hide the native window debug outline during dev
+const SHOW_DEBUG_OUTLINE = true;
+
 export default function App() {
+  const showOutline = import.meta.env.DEV && SHOW_DEBUG_OUTLINE;
+
   return (
-    // TEMP DEBUG: remove in notch step
-    <div className="w-[640px] h-[240px] relative border border-dashed border-red-500 box-border bg-transparent">
-      {/* TEMP DEBUG: remove in notch step */}
-      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[200px] h-[36px] bg-black rounded-b-2xl" />
+    <div
+      className={`w-[640px] h-[240px] relative box-border bg-transparent select-none ${
+        showOutline ? "border border-dashed border-red-500" : ""
+      }`}
+    >
+      <Notch />
     </div>
   );
 }
