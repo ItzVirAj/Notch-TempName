@@ -384,18 +384,7 @@ export default function Notch({
                   : "testnotch"}
               </span>
             </div>
-          ) : (
-            <span
-              style={{
-                fontSize: "12px",
-                fontWeight: 500,
-                color: "rgba(255, 255, 255, 0.70)",
-                letterSpacing: "-0.01em",
-              }}
-            >
-              testnotch
-            </span>
-          )}
+          ) : null}
         </motion.div>
 
         {/* 2. Expanded Content: interactive media player UI */}

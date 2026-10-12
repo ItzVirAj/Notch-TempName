@@ -7,7 +7,7 @@ export default function App() {
   const showOutline = import.meta.env.DEV && SHOW_DEBUG_OUTLINE;
 
   return (
-    <div className="w-[640px] h-[240px] relative box-border bg-transparent select-none">
+    <div className="w-full h-full relative box-border bg-transparent select-none">
       <Notch showDebugOutline={showOutline} />
     </div>
   );

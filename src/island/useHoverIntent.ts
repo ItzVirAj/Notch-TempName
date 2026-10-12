@@ -81,10 +81,10 @@ export function useHoverIntent() {
     clearTimers();
 
     // Toggle logic:
-    // If idle or peek -> expand
-    // If expanded -> collapse back to peek
+    // If expanded -> collapse directly back to idle (original state)
+    // If idle or peek -> expand to controls
     if (modeRef.current === "expanded") {
-      setMode("peek");
+      setMode("idle");
     } else {
       setMode("expanded");
     }
