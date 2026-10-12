@@ -20,7 +20,12 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
-            modules::hit_region::set_hit_region
+            modules::hit_region::set_hit_region,
+            modules::media::media_get_state,
+            modules::media::media_get_thumbnail,
+            modules::media::media_play_pause,
+            modules::media::media_next,
+            modules::media::media_previous,
         ])
         .setup(|app| {
             let app_handle = app.handle();
@@ -36,6 +41,7 @@ pub fn run() {
             modules::hotkeys::setup_hotkey(app_handle);
 
             app.manage(state);
+            app.manage(modules::media::MediaState::new());
 
             if initial_enabled {
                 if let Err(e) = modules::window::create_main_window(app_handle) {
@@ -43,6 +49,7 @@ pub fn run() {
                     // If creating webview failed (e.g. another instance is using the profile), exit cleanly
                     std::process::exit(0);
                 }
+                modules::media::start_media_worker(app_handle);
             }
 
             Ok(())

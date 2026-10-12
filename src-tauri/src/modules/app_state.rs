@@ -57,6 +57,8 @@ pub fn enable(app: &AppHandle) {
         }
     }
 
+    super::media::start_media_worker(app);
+
     *transitioning = false;
 }
 
@@ -70,6 +72,8 @@ pub fn disable(app: &AppHandle) {
         return;
     }
     *transitioning = true;
+
+    super::media::stop_media_worker(app);
 
     let mut enabled_guard = state.enabled.lock().unwrap();
     if *enabled_guard {

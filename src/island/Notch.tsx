@@ -31,6 +31,9 @@ import {
 import { setNativeHitRegion } from "./hitRegion";
 import { buildNotchPath } from "./notchPath";
 import { useHoverIntent } from "./useHoverIntent";
+import { useMediaStore } from "../store/mediaStore";
+import { useMediaSync } from "./media/useMediaSync";
+import { PlayerExpanded } from "./media/PlayerExpanded";
 
 // Single switch for "notch" vs "island" variants
 export const NOTCH_VARIANT: NotchVariant = "notch";
@@ -66,6 +69,11 @@ export default function Notch({
   topGap = ISLAND_TOP_GAP,
   showDebugOutline = false,
 }: NotchProps) {
+  // Synchronize Windows GSMTC media state
+  useMediaSync();
+  const mediaSnapshot = useMediaStore((s) => s.snapshot);
+  const thumbnailUrl = useMediaStore((s) => s.thumbnailUrl);
+
   const mode = useIslandStore((s) => s.mode);
   const prevModeRef = useRef<IslandMode>("idle");
   const reducedMotion = useReducedMotion();
@@ -272,7 +280,7 @@ export default function Notch({
           paddingRight: isNotch ? flareRadius : 0,
         }}
       >
-        {/* 1. Peek Label: subtle micro-label (12px, 70% white) */}
+        {/* 1. Peek Label: subtle micro-label or compact media preview (20px thumbnail + Title - Artist) */}
         <motion.div
           initial={false}
           animate={
@@ -299,14 +307,91 @@ export default function Notch({
                   y: { delay: 0, duration: 0.06, ease: "easeIn" },
                 }
           }
-          className="w-full h-full flex items-center justify-center pointer-events-none"
+          className="w-full h-full flex items-center justify-center pointer-events-none px-3"
         >
-          <span className="text-xs text-white/70 font-medium tracking-tight">
-            testnotch
-          </span>
+          {mediaSnapshot.hasSession ? (
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+                maxWidth: "100%",
+                overflow: "hidden",
+                padding: "0 4px",
+              }}
+            >
+              {/* 20px thumbnail */}
+              <div
+                style={{
+                  width: "20px",
+                  height: "20px",
+                  borderRadius: "4px",
+                  overflow: "hidden",
+                  backgroundColor: "rgba(255, 255, 255, 0.10)",
+                  flexShrink: 0,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                {thumbnailUrl ? (
+                  <img
+                    src={thumbnailUrl}
+                    alt=""
+                    style={{
+                      width: "100%",
+                      height: "100%",
+                      objectFit: "cover",
+                    }}
+                  />
+                ) : (
+                  <svg
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="rgba(255, 255, 255, 0.5)"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M9 18V5l12-2v13" />
+                    <circle cx="6" cy="18" r="3" />
+                    <circle cx="18" cy="16" r="3" />
+                  </svg>
+                )}
+              </div>
+              <span
+                style={{
+                  fontSize: "12px",
+                  fontWeight: 500,
+                  color: "rgba(255, 255, 255, 0.82)",
+                  letterSpacing: "-0.01em",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {mediaSnapshot.title
+                  ? `${mediaSnapshot.title}${mediaSnapshot.artist ? ` - ${mediaSnapshot.artist}` : ""}`
+                  : "testnotch"}
+              </span>
+            </div>
+          ) : (
+            <span
+              style={{
+                fontSize: "12px",
+                fontWeight: 500,
+                color: "rgba(255, 255, 255, 0.70)",
+                letterSpacing: "-0.01em",
+              }}
+            >
+              testnotch
+            </span>
+          )}
         </motion.div>
 
-        {/* 2. Expanded Content: compact title & subtitle tailored for 96px height */}
+        {/* 2. Expanded Content: interactive media player UI */}
         <motion.div
           initial={false}
           animate={
@@ -333,14 +418,9 @@ export default function Notch({
                   y: { delay: 0, duration: 0.06, ease: "easeIn" },
                 }
           }
-          className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none"
+          className="absolute inset-0 pointer-events-none"
         >
-          <span className="text-sm font-semibold text-white tracking-tight">
-            testnotch
-          </span>
-          <span className="text-xs text-neutral-400 font-normal tracking-wide mt-0.5">
-            expanded
-          </span>
+          <PlayerExpanded isExpanded={mode === "expanded"} />
         </motion.div>
       </div>
     </motion.div>
