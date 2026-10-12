@@ -18,9 +18,9 @@ export const PEEK_NOTCH_WIDTH = 260;
 export const PEEK_NOTCH_HEIGHT = 44;
 export const PEEK_BOTTOM_RADIUS = 20;
 
-// State 3: Expanded (compact 96px height)
+// State 3: Expanded
 export const EXPANDED_NOTCH_WIDTH = 480;
-export const EXPANDED_NOTCH_HEIGHT = 96;
+export const EXPANDED_NOTCH_HEIGHT = 132;
 export const EXPANDED_BOTTOM_RADIUS = 28;
 
 // Backward-compatibility aliases

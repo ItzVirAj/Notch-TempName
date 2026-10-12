@@ -527,3 +527,52 @@ pub fn media_previous(state: tauri::State<MediaState>) {
         let _ = session.TrySkipPreviousAsync();
     }
 }
+
+fn get_master_endpoint_volume() -> Result<windows::Win32::Media::Audio::Endpoints::IAudioEndpointVolume, String> {
+    use windows::Win32::Media::Audio::Endpoints::IAudioEndpointVolume;
+    use windows::Win32::Media::Audio::{eMultimedia, eRender, IMMDeviceEnumerator, MMDeviceEnumerator};
+    use windows::Win32::System::Com::{CoCreateInstance, CoInitializeEx, CLSCTX_ALL, COINIT_MULTITHREADED};
+
+    unsafe {
+        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+        let enumerator: IMMDeviceEnumerator = CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)
+            .map_err(|e| format!("Failed to create MMDeviceEnumerator: {e}"))?;
+        let device = enumerator
+            .GetDefaultAudioEndpoint(eRender, eMultimedia)
+            .map_err(|e| format!("Failed to get default audio endpoint: {e}"))?;
+        let endpoint_volume: IAudioEndpointVolume = device
+            .Activate(CLSCTX_ALL, None)
+            .map_err(|e| format!("Failed to activate IAudioEndpointVolume: {e}"))?;
+        Ok(endpoint_volume)
+    }
+}
+
+#[tauri::command]
+pub fn media_get_volume() -> Result<f32, String> {
+    let endpoint = get_master_endpoint_volume()?;
+    unsafe {
+        endpoint
+            .GetMasterVolumeLevelScalar()
+            .map_err(|e| format!("Failed to get master volume: {e}"))
+    }
+}
+
+#[tauri::command]
+pub fn media_set_volume(volume: f32) -> Result<(), String> {
+    let clamped = volume.clamp(0.0, 1.0);
+    let endpoint = get_master_endpoint_volume()?;
+    unsafe {
+        endpoint
+            .SetMasterVolumeLevelScalar(clamped, std::ptr::null())
+            .map_err(|e| format!("Failed to set master volume: {e}"))?;
+        if clamped > 0.0 {
+            if let Ok(is_muted) = endpoint.GetMute() {
+                if is_muted.as_bool() {
+                    let _ = endpoint.SetMute(false, std::ptr::null());
+                }
+            }
+        }
+        Ok(())
+    }
+}
+

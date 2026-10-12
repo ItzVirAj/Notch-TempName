@@ -26,6 +26,8 @@ pub fn run() {
             modules::media::media_play_pause,
             modules::media::media_next,
             modules::media::media_previous,
+            modules::media::media_get_volume,
+            modules::media::media_set_volume,
         ])
         .setup(|app| {
             let app_handle = app.handle();
