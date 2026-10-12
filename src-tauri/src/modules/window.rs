@@ -2,8 +2,8 @@ use tauri::{
     AppHandle, LogicalPosition, LogicalSize, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
 };
 
-pub const WINDOW_WIDTH: f64 = 640.0;
-pub const WINDOW_HEIGHT: f64 = 240.0;
+pub const WINDOW_WIDTH: f64 = 680.0;
+pub const WINDOW_HEIGHT: f64 = 440.0;
 
 pub const ADDITIONAL_BROWSER_ARGS: &str =
     "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,MediaRouter,Translate,OptimizationHints --in-process-gpu --disable-background-networking";

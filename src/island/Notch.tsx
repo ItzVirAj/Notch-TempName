@@ -13,7 +13,8 @@ import {
   DEFAULT_FLARE_RADIUS,
   EXPAND_SPRING,
   EXPANDED_BOTTOM_RADIUS,
-  EXPANDED_NOTCH_HEIGHT,
+  EXPANDED_NOTCH_HEIGHT_COMPACT,
+  EXPANDED_NOTCH_HEIGHT_WITH_MEDIA,
   EXPANDED_NOTCH_WIDTH,
   IDLE_BOTTOM_RADIUS,
   IDLE_HIT_STROKE_WIDTH,
@@ -45,24 +46,6 @@ interface NotchProps {
   showDebugOutline?: boolean;
 }
 
-const TARGETS = {
-  idle: {
-    width: IDLE_NOTCH_WIDTH,
-    height: IDLE_NOTCH_HEIGHT,
-    bottomRadius: IDLE_BOTTOM_RADIUS,
-  },
-  peek: {
-    width: PEEK_NOTCH_WIDTH,
-    height: PEEK_NOTCH_HEIGHT,
-    bottomRadius: PEEK_BOTTOM_RADIUS,
-  },
-  expanded: {
-    width: EXPANDED_NOTCH_WIDTH,
-    height: EXPANDED_NOTCH_HEIGHT,
-    bottomRadius: EXPANDED_BOTTOM_RADIUS,
-  },
-} as const;
-
 export default function Notch({
   variant = NOTCH_VARIANT,
   flareRadius = DEFAULT_FLARE_RADIUS,
@@ -81,9 +64,33 @@ export default function Notch({
 
   const isNotch = variant === "notch";
 
+  // Dynamic expanded height: compact if no media session; taller with Now Playing card
+  const hasActiveMedia = mediaSnapshot.hasSession;
+  const currentExpandedHeight = hasActiveMedia
+    ? EXPANDED_NOTCH_HEIGHT_WITH_MEDIA
+    : EXPANDED_NOTCH_HEIGHT_COMPACT;
+
+  const targets = {
+    idle: {
+      width: IDLE_NOTCH_WIDTH,
+      height: IDLE_NOTCH_HEIGHT,
+      bottomRadius: IDLE_BOTTOM_RADIUS,
+    },
+    peek: {
+      width: PEEK_NOTCH_WIDTH,
+      height: PEEK_NOTCH_HEIGHT,
+      bottomRadius: PEEK_BOTTOM_RADIUS,
+    },
+    expanded: {
+      width: EXPANDED_NOTCH_WIDTH,
+      height: currentExpandedHeight,
+      bottomRadius: EXPANDED_BOTTOM_RADIUS,
+    },
+  };
+
   // Helper to compute hit region dimensions for any given mode
   const getRegionForMode = (m: IslandMode) => {
-    const t = TARGETS[m];
+    const t = targets[m];
     const shapeWidth = isNotch ? t.width + 2 * flareRadius : t.width;
     const shapeHeight = isNotch ? t.height : t.height + topGap;
     return calculateHitRegionDimensions(shapeWidth, shapeHeight, m === "idle");
@@ -99,7 +106,7 @@ export default function Notch({
   }>(getRegionForMode("idle"));
   const transitionIdRef = useRef<number>(0);
 
-  const target = TARGETS[mode];
+  const target = targets[mode];
 
   // Motion values initialized to idle dimensions
   const widthMotion = useMotionValue(IDLE_NOTCH_WIDTH);
