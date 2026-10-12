@@ -10,19 +10,19 @@ export const ISLAND_TOP_GAP = 6;
 
 // State 1: Idle
 export const IDLE_NOTCH_WIDTH = 200;
-export const IDLE_NOTCH_HEIGHT = 32;
+export const IDLE_NOTCH_HEIGHT = 18;
 export const IDLE_BOTTOM_RADIUS = 14;
 
 // State 2: Peek
 export const PEEK_NOTCH_WIDTH = 260;
-export const PEEK_NOTCH_HEIGHT = 44;
+export const PEEK_NOTCH_HEIGHT = 40;
 export const PEEK_BOTTOM_RADIUS = 20;
 
 // State 3: Expanded
-export const EXPANDED_NOTCH_WIDTH = 560;
-export const EXPANDED_NOTCH_HEIGHT_COMPACT = 215;
-export const EXPANDED_NOTCH_HEIGHT_WITH_MEDIA = 330;
-export const EXPANDED_NOTCH_HEIGHT = EXPANDED_NOTCH_HEIGHT_WITH_MEDIA;
+export const EXPANDED_NOTCH_WIDTH = 580;
+export const EXPANDED_NOTCH_HEIGHT_COMPACT = 255;
+export const EXPANDED_NOTCH_HEIGHT_WITH_MEDIA = 255;
+export const EXPANDED_NOTCH_HEIGHT = 255;
 export const EXPANDED_BOTTOM_RADIUS = 28;
 
 // Backward-compatibility aliases
