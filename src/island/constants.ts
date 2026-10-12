@@ -61,3 +61,20 @@ export const EXPANDED_LEAVE_DELAY_MS = 400;
 // Hit-area extensions (half of strokeWidth)
 export const IDLE_HIT_STROKE_WIDTH = 16;       // 8px extension beyond shape
 export const ACTIVE_HIT_STROKE_WIDTH = 8;       // 4px extension beyond shape
+
+// Native Win32 hit region padding & overshoot headroom
+export const HIT_PADDING_IDLE = 8;             // 8px on each side & bottom in idle
+export const HIT_PADDING_ACTIVE = 4;           // 4px on each side & bottom when peek/expanded
+export const HIT_OVERSHOOT_HEADROOM = 12;      // 12px extra headroom on width & height for spring overshoot
+
+export function calculateHitRegionDimensions(
+  shapeWidth: number,
+  shapeHeight: number,
+  isIdle: boolean
+): { width: number; height: number } {
+  const padding = isIdle ? HIT_PADDING_IDLE : HIT_PADDING_ACTIVE;
+  return {
+    width: shapeWidth + padding * 2 + HIT_OVERSHOOT_HEADROOM * 2,
+    height: shapeHeight + padding + HIT_OVERSHOOT_HEADROOM,
+  };
+}

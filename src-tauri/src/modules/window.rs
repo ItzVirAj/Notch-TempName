@@ -22,8 +22,18 @@ pub fn position_top_center(window: &WebviewWindow) -> tauri::Result<()> {
         window.set_position(LogicalPosition::new(x, y))?;
     }
 
+    // Set initial hit region to match the idle notch before revealing the window.
+    // This prevents a momentary frame where the full 640x240 window blocks clicks.
+    if let Err(e) = super::hit_region::apply_hit_region(
+        window,
+        super::hit_region::INITIAL_IDLE_WIDTH,
+        super::hit_region::INITIAL_IDLE_HEIGHT,
+    ) {
+        eprintln!("Failed to apply initial hit region: {e}");
+    }
+
     // Window was initially hidden to prevent flash of unpositioned content;
-    // reveal it now that size and position are established.
+    // reveal it now that size, position, and hit region are established.
     window.show()?;
 
     Ok(())

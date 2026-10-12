@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   animate,
   motion,
@@ -25,8 +25,10 @@ import {
   PEEK_NOTCH_WIDTH,
   PEEK_SPRING,
   REDUCED_MOTION_DURATION,
+  calculateHitRegionDimensions,
   type NotchVariant,
 } from "./constants";
+import { setNativeHitRegion } from "./hitRegion";
 import { buildNotchPath } from "./notchPath";
 import { useHoverIntent } from "./useHoverIntent";
 
@@ -37,12 +39,32 @@ interface NotchProps {
   variant?: NotchVariant;
   flareRadius?: number;
   topGap?: number;
+  showDebugOutline?: boolean;
 }
+
+const TARGETS = {
+  idle: {
+    width: IDLE_NOTCH_WIDTH,
+    height: IDLE_NOTCH_HEIGHT,
+    bottomRadius: IDLE_BOTTOM_RADIUS,
+  },
+  peek: {
+    width: PEEK_NOTCH_WIDTH,
+    height: PEEK_NOTCH_HEIGHT,
+    bottomRadius: PEEK_BOTTOM_RADIUS,
+  },
+  expanded: {
+    width: EXPANDED_NOTCH_WIDTH,
+    height: EXPANDED_NOTCH_HEIGHT,
+    bottomRadius: EXPANDED_BOTTOM_RADIUS,
+  },
+} as const;
 
 export default function Notch({
   variant = NOTCH_VARIANT,
   flareRadius = DEFAULT_FLARE_RADIUS,
   topGap = ISLAND_TOP_GAP,
+  showDebugOutline = false,
 }: NotchProps) {
   const mode = useIslandStore((s) => s.mode);
   const prevModeRef = useRef<IslandMode>("idle");
@@ -51,26 +73,25 @@ export default function Notch({
 
   const isNotch = variant === "notch";
 
-  // State-specific target dimensions
-  const targets = {
-    idle: {
-      width: IDLE_NOTCH_WIDTH,
-      height: IDLE_NOTCH_HEIGHT,
-      bottomRadius: IDLE_BOTTOM_RADIUS,
-    },
-    peek: {
-      width: PEEK_NOTCH_WIDTH,
-      height: PEEK_NOTCH_HEIGHT,
-      bottomRadius: PEEK_BOTTOM_RADIUS,
-    },
-    expanded: {
-      width: EXPANDED_NOTCH_WIDTH,
-      height: EXPANDED_NOTCH_HEIGHT,
-      bottomRadius: EXPANDED_BOTTOM_RADIUS,
-    },
+  // Helper to compute hit region dimensions for any given mode
+  const getRegionForMode = (m: IslandMode) => {
+    const t = TARGETS[m];
+    const shapeWidth = isNotch ? t.width + 2 * flareRadius : t.width;
+    const shapeHeight = isNotch ? t.height : t.height + topGap;
+    return calculateHitRegionDimensions(shapeWidth, shapeHeight, m === "idle");
   };
 
-  const target = targets[mode];
+  // State & refs for Win32 hit region synchronization
+  const appliedRegionRef = useRef<{ width: number; height: number }>(
+    getRegionForMode("idle")
+  );
+  const [appliedRegionState, setAppliedRegionState] = useState<{
+    width: number;
+    height: number;
+  }>(getRegionForMode("idle"));
+  const transitionIdRef = useRef<number>(0);
+
+  const target = TARGETS[mode];
 
   // Motion values initialized to idle dimensions
   const widthMotion = useMotionValue(IDLE_NOTCH_WIDTH);
@@ -100,11 +121,29 @@ export default function Notch({
     }
   );
 
-  // Drive Motion values with the appropriate spring based on (from -> to) transition
+  // Drive Motion values with spring physics and synchronize native hit region
   useEffect(() => {
     const from = prevModeRef.current;
     const to = mode;
     prevModeRef.current = mode;
+
+    const transitionId = ++transitionIdRef.current;
+    const targetRegion = getRegionForMode(to);
+    const currentApplied = appliedRegionRef.current;
+
+    // Timing Rule:
+    // If target is LARGER than current region, expand region immediately BEFORE animation starts.
+    const isExpanding =
+      targetRegion.width > currentApplied.width ||
+      targetRegion.height > currentApplied.height;
+
+    if (isExpanding) {
+      const expandedWidth = Math.max(targetRegion.width, currentApplied.width);
+      const expandedHeight = Math.max(targetRegion.height, currentApplied.height);
+      appliedRegionRef.current = { width: expandedWidth, height: expandedHeight };
+      setAppliedRegionState({ width: expandedWidth, height: expandedHeight });
+      setNativeHitRegion(expandedWidth, expandedHeight);
+    }
 
     let spring: { stiffness: number; damping: number; mass: number } = PEEK_SPRING;
     if (to === "idle" || (from === "expanded" && to === "peek")) {
@@ -131,9 +170,37 @@ export default function Notch({
           mass: spring.mass,
         };
 
-    animate(widthMotion, target.width, transition);
-    animate(heightMotion, target.height, transition);
-    animate(bottomRadiusMotion, target.bottomRadius, transition);
+    const animW = animate(widthMotion, target.width, transition);
+    const animH = animate(heightMotion, target.height, transition);
+    const animR = animate(bottomRadiusMotion, target.bottomRadius, transition);
+
+    let completed = false;
+    const onAnimationSettled = () => {
+      if (completed) return;
+      completed = true;
+
+      // Only shrink if this transition is still the active one (not superseded by a newer transition)
+      if (transitionIdRef.current === transitionId) {
+        const cur = appliedRegionRef.current;
+        if (cur.width !== targetRegion.width || cur.height !== targetRegion.height) {
+          appliedRegionRef.current = targetRegion;
+          setAppliedRegionState(targetRegion);
+          setNativeHitRegion(targetRegion.width, targetRegion.height);
+        }
+      }
+    };
+
+    Promise.all([animW, animH, animR]).then(onAnimationSettled).catch(() => {});
+
+    // Safety timeout ensuring shrink occurs even if spring settlement resolution is delayed
+    const safetyTimer = window.setTimeout(
+      onAnimationSettled,
+      reducedMotion ? 160 : 450
+    );
+
+    return () => {
+      window.clearTimeout(safetyTimer);
+    };
   }, [
     mode,
     target.width,
@@ -143,6 +210,9 @@ export default function Notch({
     widthMotion,
     heightMotion,
     bottomRadiusMotion,
+    isNotch,
+    flareRadius,
+    topGap,
   ]);
 
   // Hit area extension: 8px (strokeWidth=16) in idle; 4px (strokeWidth=8) in peek/expanded
@@ -150,16 +220,28 @@ export default function Notch({
     mode === "idle" ? IDLE_HIT_STROKE_WIDTH : ACTIVE_HIT_STROKE_WIDTH;
 
   return (
-    <motion.div
-      style={{
-        width: totalWidthMotion,
-        height: totalHeightMotion,
-      }}
-      className="absolute top-0 left-1/2 -translate-x-1/2 pointer-events-none select-none"
-      onMouseEnter={onMouseEnter}
-      onMouseLeave={onMouseLeave}
-      onClick={onClick}
-    >
+    <>
+      {/* DEV Debug Outline: outlines the exact Win32 interactive hit region */}
+      {showDebugOutline && (
+        <div
+          style={{
+            width: appliedRegionState.width,
+            height: appliedRegionState.height,
+          }}
+          className="absolute top-0 left-1/2 -translate-x-1/2 border border-dashed border-red-500 pointer-events-none box-border z-50"
+        />
+      )}
+
+      <motion.div
+        style={{
+          width: totalWidthMotion,
+          height: totalHeightMotion,
+        }}
+        className="absolute top-0 left-1/2 -translate-x-1/2 pointer-events-none select-none"
+        onMouseEnter={onMouseEnter}
+        onMouseLeave={onMouseLeave}
+        onClick={onClick}
+      >
       <svg
         className="w-full h-full overflow-visible pointer-events-none"
         shapeRendering="geometricPrecision"
@@ -262,5 +344,6 @@ export default function Notch({
         </motion.div>
       </div>
     </motion.div>
+    </>
   );
 }
