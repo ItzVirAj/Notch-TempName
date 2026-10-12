@@ -48,6 +48,10 @@ pub fn run() {
 
             app.manage(state);
             app.manage(modules::media::MediaState::new());
+            app.manage(modules::power_events::PowerEventsState::new());
+            app.manage(modules::network_events::NetworkEventsState::new());
+            app.manage(modules::bluetooth_events::BluetoothEventsState::new());
+            app.manage(modules::audio_events::AudioEventsState::new());
 
             if initial_enabled {
                 if let Err(e) = modules::window::create_main_window(app_handle) {
@@ -56,6 +60,10 @@ pub fn run() {
                     std::process::exit(0);
                 }
                 modules::media::start_media_worker(app_handle);
+                modules::power_events::start_power_monitor(app_handle);
+                modules::network_events::start_network_monitor(app_handle);
+                modules::bluetooth_events::start_bluetooth_monitor(app_handle);
+                modules::audio_events::start_audio_monitor(app_handle);
             }
 
             Ok(())

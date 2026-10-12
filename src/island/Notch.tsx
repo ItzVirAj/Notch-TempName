@@ -36,6 +36,15 @@ import { useMediaStore } from "../store/mediaStore";
 import { useMediaSync } from "./media/useMediaSync";
 import { PlayerExpanded } from "./media/PlayerExpanded";
 
+import {
+  ACTIVITY_PEEK_WIDTH,
+  ACTIVITY_PEEK_HEIGHT,
+  ACTIVITY_BOTTOM_RADIUS,
+} from "./constants";
+import { useActivityStore } from "../store/activityStore";
+import { useActivitySync } from "./activities/useActivitySync";
+import { ActivityPeek } from "./activities/ActivityPeek";
+
 // Single switch for "notch" vs "island" variants
 export const NOTCH_VARIANT: NotchVariant = "notch";
 
@@ -70,6 +79,14 @@ export default function Notch({
     ? EXPANDED_NOTCH_HEIGHT_WITH_MEDIA
     : EXPANDED_NOTCH_HEIGHT_COMPACT;
 
+  // Live Activities synchronization & active activity state
+  useActivitySync();
+  const currentActivity = useActivityStore((s) => s.currentActivity);
+  const setActivityHovered = useActivityStore((s) => s.setHovered);
+  const clearAllActivities = useActivityStore((s) => s.clearAll);
+
+  const hasActiveActivity = currentActivity !== null && mode !== "expanded";
+
   const targets = {
     idle: {
       width: IDLE_NOTCH_WIDTH,
@@ -88,25 +105,56 @@ export default function Notch({
     },
   };
 
-  // Helper to compute hit region dimensions for any given mode
-  const getRegionForMode = (m: IslandMode) => {
-    const t = targets[m];
+  const target = hasActiveActivity
+    ? {
+        width: ACTIVITY_PEEK_WIDTH,
+        height: ACTIVITY_PEEK_HEIGHT,
+        bottomRadius: ACTIVITY_BOTTOM_RADIUS,
+      }
+    : targets[mode];
+
+  // Helper to compute hit region dimensions for any given mode & activity presence
+  const getRegionForMode = (m: IslandMode, isAct: boolean) => {
+    const t = isAct && m !== "expanded"
+      ? {
+          width: ACTIVITY_PEEK_WIDTH,
+          height: ACTIVITY_PEEK_HEIGHT,
+          bottomRadius: ACTIVITY_BOTTOM_RADIUS,
+        }
+      : targets[m];
     const shapeWidth = isNotch ? t.width + 2 * flareRadius : t.width;
     const shapeHeight = isNotch ? t.height : t.height + topGap;
-    return calculateHitRegionDimensions(shapeWidth, shapeHeight, m === "idle");
+    return calculateHitRegionDimensions(shapeWidth, shapeHeight, m === "idle" && !isAct);
   };
 
   // State & refs for Win32 hit region synchronization
   const appliedRegionRef = useRef<{ width: number; height: number }>(
-    getRegionForMode("idle")
+    getRegionForMode("idle", false)
   );
   const [appliedRegionState, setAppliedRegionState] = useState<{
     width: number;
     height: number;
-  }>(getRegionForMode("idle"));
+  }>(getRegionForMode("idle", false));
   const transitionIdRef = useRef<number>(0);
 
-  const target = targets[mode];
+  const handleMouseEnter = () => {
+    setActivityHovered(true);
+    onMouseEnter();
+  };
+
+  const handleMouseLeave = () => {
+    setActivityHovered(false);
+    onMouseLeave();
+  };
+
+  const handleClick = () => {
+    if (hasActiveActivity) {
+      clearAllActivities();
+      useIslandStore.getState().setMode("expanded");
+    } else {
+      onClick();
+    }
+  };
 
   // Motion values initialized to idle dimensions
   const widthMotion = useMotionValue(IDLE_NOTCH_WIDTH);
@@ -143,7 +191,7 @@ export default function Notch({
     prevModeRef.current = mode;
 
     const transitionId = ++transitionIdRef.current;
-    const targetRegion = getRegionForMode(to);
+    const targetRegion = getRegionForMode(to, hasActiveActivity);
     const currentApplied = appliedRegionRef.current;
 
     // Timing Rule:
@@ -218,6 +266,7 @@ export default function Notch({
     };
   }, [
     mode,
+    hasActiveActivity,
     target.width,
     target.height,
     target.bottomRadius,
@@ -253,9 +302,9 @@ export default function Notch({
           height: totalHeightMotion,
         }}
         className="absolute top-0 left-1/2 -translate-x-1/2 pointer-events-none select-none"
-        onMouseEnter={onMouseEnter}
-        onMouseLeave={onMouseLeave}
-        onClick={onClick}
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
+        onClick={handleClick}
       >
       <svg
         className="w-full h-full overflow-visible pointer-events-none"
@@ -268,7 +317,7 @@ export default function Notch({
           stroke="transparent"
           strokeWidth={hitStrokeWidth}
           className="pointer-events-auto cursor-pointer"
-          onClick={onClick}
+          onClick={handleClick}
         />
 
         {/* Visible notch vector path */}
@@ -276,7 +325,7 @@ export default function Notch({
           d={pathD}
           fill="#000000"
           className="pointer-events-auto cursor-pointer"
-          onClick={onClick}
+          onClick={handleClick}
         />
       </svg>
 
@@ -293,12 +342,14 @@ export default function Notch({
         <motion.div
           initial={false}
           animate={
-            mode === "peek"
+            hasActiveActivity
+              ? { opacity: 0, y: -4 }
+              : mode === "peek"
               ? { opacity: 1, y: 0 }
               : { opacity: 0, y: mode === "expanded" ? -4 : 4 }
           }
           transition={
-            mode === "peek"
+            mode === "peek" && !hasActiveActivity
               ? {
                   opacity: {
                     delay: reducedMotion ? 0 : 0.06,
@@ -312,14 +363,14 @@ export default function Notch({
                   },
                 }
               : {
-                  opacity: { delay: 0, duration: 0.06, ease: "easeIn" },
-                  y: { delay: 0, duration: 0.06, ease: "easeIn" },
+                  opacity: { delay: 0, duration: 0.08, ease: "easeIn" },
+                  y: { delay: 0, duration: 0.08, ease: "easeIn" },
                 }
           }
           className={`w-full h-full flex items-center justify-center px-3 ${
-            mode === "peek" ? "pointer-events-auto cursor-pointer" : "pointer-events-none"
+            mode === "peek" && !hasActiveActivity ? "pointer-events-auto cursor-pointer" : "pointer-events-none"
           }`}
-          onClick={onClick}
+          onClick={handleClick}
         >
           {mediaSnapshot.hasSession && mediaSnapshot.title ? (
             <div
@@ -439,6 +490,34 @@ export default function Notch({
               </span>
             </div>
           )}
+        </motion.div>
+
+        {/* 1.5 Live Activity Overlay: clean glanceable card inside peek shape */}
+        <motion.div
+          initial={false}
+          animate={
+            hasActiveActivity
+              ? { opacity: 1, y: 0 }
+              : { opacity: 0, y: 4 }
+          }
+          transition={{
+            opacity: {
+              delay: hasActiveActivity ? (reducedMotion ? 0 : 0.06) : 0,
+              duration: 0.12,
+              ease: hasActiveActivity ? "easeOut" : "easeIn",
+            },
+            y: {
+              delay: hasActiveActivity ? (reducedMotion ? 0 : 0.06) : 0,
+              duration: 0.12,
+              ease: hasActiveActivity ? "easeOut" : "easeIn",
+            },
+          }}
+          className={`absolute inset-0 flex items-center justify-center ${
+            hasActiveActivity ? "pointer-events-auto cursor-pointer" : "pointer-events-none"
+          }`}
+          onClick={handleClick}
+        >
+          {currentActivity && <ActivityPeek activity={currentActivity} />}
         </motion.div>
 
         {/* 2. Expanded Content: interactive media player UI */}

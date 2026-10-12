@@ -18,6 +18,21 @@ export const PEEK_NOTCH_WIDTH = 260;
 export const PEEK_NOTCH_HEIGHT = 40;
 export const PEEK_BOTTOM_RADIUS = 20;
 
+// State 2.5: Activity Peek
+export const ACTIVITY_PEEK_WIDTH = 300;
+export const ACTIVITY_PEEK_HEIGHT = 44;
+export const ACTIVITY_BOTTOM_RADIUS = 20;
+
+// Live Activities Timing & Rules
+export const ACTIVITY_TTL_BLUETOOTH_MS = 3000;
+export const ACTIVITY_TTL_WIFI_MS = 2500;
+export const ACTIVITY_TTL_CHARGING_MS = 3000;
+export const ACTIVITY_TTL_BATTERY_LOW_MS = 4000;
+export const ACTIVITY_TTL_VOLUME_MS = 1500;
+export const ACTIVITY_DEDUPE_WINDOW_MS = 1500;
+export const ACTIVITY_INITIAL_SUPPRESSION_MS = 3000;
+export const ACTIVITY_MAX_QUEUE_SIZE = 3;
+
 // State 3: Expanded
 export const EXPANDED_NOTCH_WIDTH = 580;
 export const EXPANDED_NOTCH_HEIGHT_COMPACT = 255;

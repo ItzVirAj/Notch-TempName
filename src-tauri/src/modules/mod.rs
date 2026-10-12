@@ -6,3 +6,7 @@ pub mod tray;
 pub mod window;
 pub mod media;
 pub mod system;
+pub mod audio_events;
+pub mod bluetooth_events;
+pub mod network_events;
+pub mod power_events;

@@ -58,6 +58,10 @@ pub fn enable(app: &AppHandle) {
     }
 
     super::media::start_media_worker(app);
+    super::power_events::start_power_monitor(app);
+    super::network_events::start_network_monitor(app);
+    super::bluetooth_events::start_bluetooth_monitor(app);
+    super::audio_events::start_audio_monitor(app);
 
     *transitioning = false;
 }
@@ -74,6 +78,10 @@ pub fn disable(app: &AppHandle) {
     *transitioning = true;
 
     super::media::stop_media_worker(app);
+    super::power_events::stop_power_monitor(app);
+    super::network_events::stop_network_monitor(app);
+    super::bluetooth_events::stop_bluetooth_monitor(app);
+    super::audio_events::stop_audio_monitor(app);
 
     let mut enabled_guard = state.enabled.lock().unwrap();
     if *enabled_guard {
