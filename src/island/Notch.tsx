@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import {
   animate,
   motion,
@@ -6,8 +6,9 @@ import {
   useReducedMotion,
   useTransform,
 } from "motion/react";
-import { useIslandStore } from "../store/islandStore";
+import { useIslandStore, type IslandMode } from "../store/islandStore";
 import {
+  ACTIVE_HIT_STROKE_WIDTH,
   COLLAPSE_SPRING,
   DEFAULT_FLARE_RADIUS,
   EXPAND_SPRING,
@@ -15,9 +16,14 @@ import {
   EXPANDED_NOTCH_HEIGHT,
   EXPANDED_NOTCH_WIDTH,
   IDLE_BOTTOM_RADIUS,
+  IDLE_HIT_STROKE_WIDTH,
   IDLE_NOTCH_HEIGHT,
   IDLE_NOTCH_WIDTH,
   ISLAND_TOP_GAP,
+  PEEK_BOTTOM_RADIUS,
+  PEEK_NOTCH_HEIGHT,
+  PEEK_NOTCH_WIDTH,
+  PEEK_SPRING,
   REDUCED_MOTION_DURATION,
   type NotchVariant,
 } from "./constants";
@@ -39,18 +45,34 @@ export default function Notch({
   topGap = ISLAND_TOP_GAP,
 }: NotchProps) {
   const mode = useIslandStore((s) => s.mode);
-  const isExpanded = mode === "expanded";
+  const prevModeRef = useRef<IslandMode>("idle");
   const reducedMotion = useReducedMotion();
   const { onMouseEnter, onMouseLeave, onClick } = useHoverIntent();
 
   const isNotch = variant === "notch";
 
-  // Target values based on current state machine mode
-  const targetWidth = isExpanded ? EXPANDED_NOTCH_WIDTH : IDLE_NOTCH_WIDTH;
-  const targetHeight = isExpanded ? EXPANDED_NOTCH_HEIGHT : IDLE_NOTCH_HEIGHT;
-  const targetBottomR = isExpanded ? EXPANDED_BOTTOM_RADIUS : IDLE_BOTTOM_RADIUS;
+  // State-specific target dimensions
+  const targets = {
+    idle: {
+      width: IDLE_NOTCH_WIDTH,
+      height: IDLE_NOTCH_HEIGHT,
+      bottomRadius: IDLE_BOTTOM_RADIUS,
+    },
+    peek: {
+      width: PEEK_NOTCH_WIDTH,
+      height: PEEK_NOTCH_HEIGHT,
+      bottomRadius: PEEK_BOTTOM_RADIUS,
+    },
+    expanded: {
+      width: EXPANDED_NOTCH_WIDTH,
+      height: EXPANDED_NOTCH_HEIGHT,
+      bottomRadius: EXPANDED_BOTTOM_RADIUS,
+    },
+  };
 
-  // Individual Motion values driven by interruptible springs
+  const target = targets[mode];
+
+  // Motion values initialized to idle dimensions
   const widthMotion = useMotionValue(IDLE_NOTCH_WIDTH);
   const heightMotion = useMotionValue(IDLE_NOTCH_HEIGHT);
   const bottomRadiusMotion = useMotionValue(IDLE_BOTTOM_RADIUS);
@@ -78,41 +100,54 @@ export default function Notch({
     }
   );
 
-  // Drive Motion values on state transition
+  // Drive Motion values with the appropriate spring based on (from -> to) transition
   useEffect(() => {
+    const from = prevModeRef.current;
+    const to = mode;
+    prevModeRef.current = mode;
+
+    let spring: { stiffness: number; damping: number; mass: number } = PEEK_SPRING;
+    if (to === "idle" || (from === "expanded" && to === "peek")) {
+      // Collapse or downsize: swift, authoritative collapse spring
+      spring = COLLAPSE_SPRING;
+    } else if (to === "expanded") {
+      // Full expansion: lively Dynamic Island spring
+      spring = EXPAND_SPRING;
+    } else if (from === "idle" && to === "peek") {
+      // Subtle peek: quick and light spring with minimal overshoot
+      spring = PEEK_SPRING;
+    }
+
     const transition = reducedMotion
       ? {
           type: "tween" as const,
           duration: REDUCED_MOTION_DURATION,
           ease: "easeOut" as const,
         }
-      : isExpanded
-      ? {
-          type: "spring" as const,
-          stiffness: EXPAND_SPRING.stiffness,
-          damping: EXPAND_SPRING.damping,
-          mass: EXPAND_SPRING.mass,
-        }
       : {
           type: "spring" as const,
-          stiffness: COLLAPSE_SPRING.stiffness,
-          damping: COLLAPSE_SPRING.damping,
-          mass: COLLAPSE_SPRING.mass,
+          stiffness: spring.stiffness,
+          damping: spring.damping,
+          mass: spring.mass,
         };
 
-    animate(widthMotion, targetWidth, transition);
-    animate(heightMotion, targetHeight, transition);
-    animate(bottomRadiusMotion, targetBottomR, transition);
+    animate(widthMotion, target.width, transition);
+    animate(heightMotion, target.height, transition);
+    animate(bottomRadiusMotion, target.bottomRadius, transition);
   }, [
-    isExpanded,
-    targetWidth,
-    targetHeight,
-    targetBottomR,
+    mode,
+    target.width,
+    target.height,
+    target.bottomRadius,
     reducedMotion,
     widthMotion,
     heightMotion,
     bottomRadiusMotion,
   ]);
+
+  // Hit area extension: 8px (strokeWidth=16) in idle; 4px (strokeWidth=8) in peek/expanded
+  const hitStrokeWidth =
+    mode === "idle" ? IDLE_HIT_STROKE_WIDTH : ACTIVE_HIT_STROKE_WIDTH;
 
   return (
     <motion.div
@@ -129,16 +164,14 @@ export default function Notch({
         className="w-full h-full overflow-visible pointer-events-none"
         shapeRendering="geometricPrecision"
       >
-        {/* Invisible 8px hit area extension on bottom and sides while idle */}
-        {mode === "idle" && (
-          <motion.path
-            d={pathD}
-            fill="none"
-            stroke="transparent"
-            strokeWidth={16}
-            className="pointer-events-auto cursor-pointer"
-          />
-        )}
+        {/* Invisible hit padding area (8px idle / 4px peek & expanded) */}
+        <motion.path
+          d={pathD}
+          fill="none"
+          stroke="transparent"
+          strokeWidth={hitStrokeWidth}
+          className="pointer-events-auto cursor-pointer"
+        />
 
         {/* Visible notch vector path */}
         <motion.path
@@ -148,7 +181,7 @@ export default function Notch({
         />
       </svg>
 
-      {/* Placeholder content clipped within the notch boundary */}
+      {/* Content Layer: Clipped strictly inside the notch body */}
       <div
         className="absolute inset-0 pointer-events-none overflow-hidden"
         style={{
@@ -157,38 +190,73 @@ export default function Notch({
           paddingRight: isNotch ? flareRadius : 0,
         }}
       >
+        {/* 1. Peek Label: subtle micro-label (12px, 70% white) */}
         <motion.div
           initial={false}
           animate={
-            isExpanded
+            mode === "peek"
               ? { opacity: 1, y: 0 }
-              : { opacity: 0, y: 6 }
+              : { opacity: 0, y: mode === "expanded" ? -4 : 4 }
           }
           transition={
-            isExpanded
+            mode === "peek"
               ? {
                   opacity: {
-                    delay: reducedMotion ? 0 : 0.08,
-                    duration: 0.16,
+                    delay: reducedMotion ? 0 : 0.06,
+                    duration: 0.12,
                     ease: "easeOut",
                   },
                   y: {
-                    delay: reducedMotion ? 0 : 0.08,
-                    duration: 0.16,
+                    delay: reducedMotion ? 0 : 0.06,
+                    duration: 0.12,
                     ease: "easeOut",
                   },
                 }
               : {
-                  opacity: { delay: 0, duration: 0.08, ease: "easeIn" },
-                  y: { delay: 0, duration: 0.08, ease: "easeIn" },
+                  opacity: { delay: 0, duration: 0.06, ease: "easeIn" },
+                  y: { delay: 0, duration: 0.06, ease: "easeIn" },
                 }
           }
-          className="w-full h-full flex flex-col items-center justify-center pointer-events-none"
+          className="w-full h-full flex items-center justify-center pointer-events-none"
         >
-          <span className="text-white text-base font-semibold tracking-tight">
+          <span className="text-xs text-white/70 font-medium tracking-tight">
             testnotch
           </span>
-          <span className="text-neutral-400 text-xs font-normal tracking-wide mt-1">
+        </motion.div>
+
+        {/* 2. Expanded Content: compact title & subtitle tailored for 96px height */}
+        <motion.div
+          initial={false}
+          animate={
+            mode === "expanded"
+              ? { opacity: 1, y: 0 }
+              : { opacity: 0, y: 4 }
+          }
+          transition={
+            mode === "expanded"
+              ? {
+                  opacity: {
+                    delay: reducedMotion ? 0 : 0.08,
+                    duration: 0.14,
+                    ease: "easeOut",
+                  },
+                  y: {
+                    delay: reducedMotion ? 0 : 0.08,
+                    duration: 0.14,
+                    ease: "easeOut",
+                  },
+                }
+              : {
+                  opacity: { delay: 0, duration: 0.06, ease: "easeIn" },
+                  y: { delay: 0, duration: 0.06, ease: "easeIn" },
+                }
+          }
+          className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none"
+        >
+          <span className="text-sm font-semibold text-white tracking-tight">
+            testnotch
+          </span>
+          <span className="text-xs text-neutral-400 font-normal tracking-wide mt-0.5">
             expanded
           </span>
         </motion.div>

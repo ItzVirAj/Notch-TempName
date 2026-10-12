@@ -4,16 +4,23 @@ export type NotchVariant = "notch" | "island";
 export const WINDOW_WIDTH = 640;
 export const WINDOW_HEIGHT = 240;
 
-// Idle geometry
-export const IDLE_NOTCH_WIDTH = 200;
-export const IDLE_NOTCH_HEIGHT = 32;
-export const IDLE_BOTTOM_RADIUS = 14;
+// Universal flare and island gap
 export const DEFAULT_FLARE_RADIUS = 12;
 export const ISLAND_TOP_GAP = 6;
 
-// Expanded geometry
+// State 1: Idle
+export const IDLE_NOTCH_WIDTH = 200;
+export const IDLE_NOTCH_HEIGHT = 32;
+export const IDLE_BOTTOM_RADIUS = 14;
+
+// State 2: Peek
+export const PEEK_NOTCH_WIDTH = 260;
+export const PEEK_NOTCH_HEIGHT = 44;
+export const PEEK_BOTTOM_RADIUS = 20;
+
+// State 3: Expanded (compact 96px height)
 export const EXPANDED_NOTCH_WIDTH = 480;
-export const EXPANDED_NOTCH_HEIGHT = 140;
+export const EXPANDED_NOTCH_HEIGHT = 96;
 export const EXPANDED_BOTTOM_RADIUS = 28;
 
 // Backward-compatibility aliases
@@ -21,13 +28,22 @@ export const DEFAULT_NOTCH_WIDTH = IDLE_NOTCH_WIDTH;
 export const DEFAULT_NOTCH_HEIGHT = IDLE_NOTCH_HEIGHT;
 export const DEFAULT_BOTTOM_RADIUS = IDLE_BOTTOM_RADIUS;
 
-// Spring physics (Apple HIG Dynamic Island spring response)
+// Spring configurations per transition intent
+// 1. idle -> peek: quick and light, subtle overshoot
+export const PEEK_SPRING = {
+  stiffness: 420,
+  damping: 30,
+  mass: 1,
+} as const;
+
+// 2. peek -> expanded / idle -> expanded: buoyant Dynamic Island spring
 export const EXPAND_SPRING = {
   stiffness: 380,
   damping: 28,
   mass: 1,
 } as const;
 
+// 3. any -> idle / expanded -> peek: agile, authoritative collapse
 export const COLLAPSE_SPRING = {
   stiffness: 460,
   damping: 36,
@@ -37,6 +53,11 @@ export const COLLAPSE_SPRING = {
 // Reduced motion fallback (Apple HIG Accessibility: 120ms non-bouncy tween)
 export const REDUCED_MOTION_DURATION = 0.12;
 
-// Hover intent timings (hysteresis)
-export const HOVER_IN_DELAY_MS = 120;
-export const HOVER_OUT_DELAY_MS = 250;
+// Hover intent & hysteresis timings
+export const HOVER_IN_PEEK_DELAY_MS = 120;
+export const PEEK_LEAVE_DELAY_MS = 250;
+export const EXPANDED_LEAVE_DELAY_MS = 400;
+
+// Hit-area extensions (half of strokeWidth)
+export const IDLE_HIT_STROKE_WIDTH = 16;       // 8px extension beyond shape
+export const ACTIVE_HIT_STROKE_WIDTH = 8;       // 4px extension beyond shape
