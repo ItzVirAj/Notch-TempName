@@ -18,3 +18,8 @@ Tauri 2 (Rust), React + TypeScript + Vite, Tailwind CSS, Motion (`motion/react`)
 - After each slice, make sure `npm run tauri dev` still runs with no errors or warnings, then commit.
 - Explain any Windows-specific API choices briefly before using them.
 - Keep code readable and commented where the Windows behavior is non-obvious.
+
+## Design skills
+- Use the frontend-design skill for visual design decisions: the look of the notch, mascot, panels, typography, and avoiding generic or templated styling.
+- Use the Apple HIG skill for interaction and behavior decisions: motion principles, spacing, hit target sizes, hierarchy, feedback, and accessibility (including respecting prefers-reduced-motion).
+- For any UI task, say which skill(s) you are applying and why before writing code.

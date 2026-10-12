@@ -12,9 +12,19 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "testnotch",
-        "width": 800,
-        "height": 600
+        "width": 640,
+        "height": 240,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "shadow": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "visible": false,
+        "focus": false,
+        "focusable": false
       }
     ],
     "security": {

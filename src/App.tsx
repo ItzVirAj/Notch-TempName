@@ -1,7 +1,10 @@
+// TEMP DEBUG: remove in notch step
 export default function App() {
   return (
-    <main className="min-h-screen flex items-center justify-center bg-neutral-900 text-neutral-100">
-      <h1 className="text-2xl font-semibold tracking-tight">testnotch ready</h1>
-    </main>
+    // TEMP DEBUG: remove in notch step
+    <div className="w-[640px] h-[240px] relative border border-dashed border-red-500 box-border bg-transparent">
+      {/* TEMP DEBUG: remove in notch step */}
+      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[200px] h-[36px] bg-black rounded-b-2xl" />
+    </div>
   );
 }
