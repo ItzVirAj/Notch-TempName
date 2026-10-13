@@ -7,10 +7,14 @@ interface VolumeEventPayload {
   muted: boolean;
 }
 
+type PowerReason = "plugged" | "unplugged" | "low" | "full";
+
 interface PowerEventPayload {
   onAc: boolean;
   percent: number;
   charging: boolean;
+  /** Why Rust emitted this event. Optional for backward compatibility. */
+  reason?: PowerReason;
 }
 
 interface WifiEventPayload {
@@ -19,6 +23,8 @@ interface WifiEventPayload {
 }
 
 interface BluetoothEventPayload {
+  /** Stable device id, so connect and disconnect events map to the same activity. */
+  id?: string;
   name: string;
   connected: boolean;
   deviceType?: ActivityDeviceType;
@@ -54,14 +60,24 @@ export function useActivitySync() {
     });
 
     // 2. Power State Listener
+    // Rust only emits on a real change, so the first event after launch is a
+    // real transition. Never wait for a "previous" value before showing it.
     listen<PowerEventPayload>("power://state", (event) => {
-      const { onAc, percent, charging } = event.payload;
+      const { onAc, percent, reason } = event.payload;
       const prevOnAc = lastOnAcRef.current;
       lastOnAcRef.current = onAc;
 
-      // AC power source transition
-      if (prevOnAc !== null && prevOnAc !== onAc) {
-        if (onAc) {
+      // Prefer the explicit reason from Rust; fall back to inference for old payloads.
+      let kind: PowerReason | null = reason ?? null;
+      if (!kind) {
+        if (prevOnAc !== null && prevOnAc !== onAc) kind = onAc ? "plugged" : "unplugged";
+        else if (!onAc && percent <= 20) kind = "low";
+        else if (onAc && percent >= 100) kind = "full";
+      }
+      if (!kind) return;
+
+      switch (kind) {
+        case "plugged":
           pushActivity({
             id: "power-charger",
             kind: "charging",
@@ -71,7 +87,8 @@ export function useActivitySync() {
             state: "charging",
             deviceType: "generic",
           });
-        } else {
+          break;
+        case "unplugged":
           pushActivity({
             id: "power-charger",
             kind: "charging",
@@ -81,33 +98,29 @@ export function useActivitySync() {
             state: "unplugged",
             deviceType: "generic",
           });
-        }
-      }
-
-      // Low Battery Threshold Alert (discharging and <= 20%)
-      if (!onAc && percent <= 20) {
-        pushActivity({
-          id: `power-low-${percent <= 10 ? "critical" : "warning"}`,
-          kind: "battery-low",
-          title: percent <= 10 ? "Battery Critical" : "Low Battery",
-          subtitle: `${percent}% remaining`,
-          value: percent,
-          state: "low",
-          deviceType: "generic",
-        });
-      }
-
-      // Fully Charged Alert
-      if (onAc && percent >= 100 && charging) {
-        pushActivity({
-          id: "power-full",
-          kind: "charging",
-          title: "Fully Charged",
-          subtitle: "100%",
-          value: 100,
-          state: "charging",
-          deviceType: "generic",
-        });
+          break;
+        case "low":
+          pushActivity({
+            id: `power-low-${percent <= 10 ? "critical" : "warning"}`,
+            kind: "battery-low",
+            title: percent <= 10 ? "Battery Critical" : "Low Battery",
+            subtitle: `${percent}% remaining`,
+            value: percent,
+            state: "low",
+            deviceType: "generic",
+          });
+          break;
+        case "full":
+          pushActivity({
+            id: "power-full",
+            kind: "charging",
+            title: "Fully Charged",
+            subtitle: "100%",
+            value: 100,
+            state: "charging",
+            deviceType: "generic",
+          });
+          break;
       }
     }).then((unlisten) => {
       if (isDisposed) unlisten();
@@ -143,9 +156,9 @@ export function useActivitySync() {
 
     // 4. Bluetooth Connection Listener
     listen<BluetoothEventPayload>("bluetooth://state", (event) => {
-      const { name, connected, deviceType } = event.payload;
+      const { id, name, connected, deviceType } = event.payload;
       pushActivity({
-        id: `bt-${name}`,
+        id: `bt-${id ?? name}`,
         kind: "bluetooth",
         title: name,
         subtitle: connected ? "Connected" : "Disconnected",

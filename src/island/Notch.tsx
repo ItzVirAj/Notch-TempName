@@ -209,7 +209,7 @@ export default function Notch({
     }
 
     let spring: { stiffness: number; damping: number; mass: number } = PEEK_SPRING;
-    if (to === "idle" || (from === "expanded" && to === "peek")) {
+    if ((to === "idle" && !hasActiveActivity) || (from === "expanded" && to === "peek")) {
       // Collapse or downsize: swift, authoritative collapse spring
       spring = COLLAPSE_SPRING;
     } else if (to === "expanded") {

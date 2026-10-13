@@ -76,6 +76,11 @@ const APP_START_TIME = Date.now();
 // Deduplication log: map of `${kind}:${id}` -> last timestamp
 const lastEventTimestamps = new Map<string, number>();
 
+// Highest priority first; stable for equal priority (first come, first shown).
+function sortByPriority(list: Activity[]): Activity[] {
+  return [...list].sort((a, b) => b.priority - a.priority);
+}
+
 function clearDismissTimer() {
   if (dismissTimerId !== null) {
     window.clearTimeout(dismissTimerId);
@@ -188,7 +193,7 @@ export const useActivityStore = create<ActivityState>((set, get) => {
       // 6. Higher priority replaces current activity immediately; displace old current into queue
       if (fullActivity.priority > currentActivity.priority) {
         clearDismissTimer();
-        const updatedQueue = [currentActivity, ...queue].slice(0, ACTIVITY_MAX_QUEUE_SIZE);
+        const updatedQueue = sortByPriority([currentActivity, ...queue]).slice(0, ACTIVITY_MAX_QUEUE_SIZE);
         set({ currentActivity: fullActivity, queue: updatedQueue });
 
         if (!get().isHovered) {
@@ -202,9 +207,19 @@ export const useActivityStore = create<ActivityState>((set, get) => {
       }
 
       // 7. Lower or equal priority waits in queue (max 3 queued, drop oldest if full)
-      const nextQueue = [...queue, fullActivity];
+      // Same kind+id already waiting: update it in place instead of queueing a duplicate.
+      const existingIdx = queue.findIndex(
+        (q) => q.kind === fullActivity.kind && q.id === fullActivity.id
+      );
+      let nextQueue = [...queue];
+      if (existingIdx >= 0) {
+        nextQueue[existingIdx] = fullActivity;
+      } else {
+        nextQueue.push(fullActivity);
+      }
+      nextQueue = sortByPriority(nextQueue);
       if (nextQueue.length > ACTIVITY_MAX_QUEUE_SIZE) {
-        nextQueue.shift(); // drop the oldest
+        nextQueue.pop(); // drop the lowest priority
       }
       set({ queue: nextQueue });
     },
