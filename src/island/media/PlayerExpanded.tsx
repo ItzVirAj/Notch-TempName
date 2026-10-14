@@ -1,12 +1,25 @@
 import React, { useEffect, useRef, useState, useCallback, useMemo } from "react";
-import { motion, AnimatePresence } from "motion/react";
+import { motion } from "motion/react";
 import { invoke } from "@tauri-apps/api/core";
 import { useMediaStore } from "../../store/mediaStore";
 import { useIslandStore } from "../../store/islandStore";
 
-/* ---------------------------------------------------------------------------
- * UI/UX Pro Max Design Intelligence: Helpers & Design Tokens
- * ------------------------------------------------------------------------- */
+/* ============================================================================
+ * PlayerExpanded — "Obsidian Deck" design overhaul
+ *
+ * Design language:
+ *  - Single-view editorial layout: no tabs, everything glanceable at once
+ *    (HIG: transient surfaces should not require navigation).
+ *  - Dynamic accent color sampled from the album artwork; the whole panel
+ *    tints to whatever is playing. Falls back to warm brass when no art.
+ *  - Matte obsidian surfaces: layered solid rgba + hairline strokes.
+ *    NO backdrop-filter (per project performance rules).
+ *  - Mono tabular numerals for all time/percent readouts.
+ *  - Equalizer animates only while actually playing; honors
+ *    prefers-reduced-motion.
+ * ========================================================================== */
+
+/* ----------------------------- Utilities --------------------------------- */
 
 function formatTime(ms: number): string {
   if (ms <= 0 || isNaN(ms)) return "0:00";
@@ -18,99 +31,111 @@ function formatTime(ms: number): string {
 
 const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
 
-const BAR_COUNT_COMPACT = 42;
-const BAR_COUNT_FULL = 72;
+/** Default accent when no artwork is available: warm brass. */
+const FALLBACK_ACCENT = { r: 235, g: 185, b: 110 };
 
-/* Scoped CSS with Accessibility & Motion Discipline */
+/** rgba() helper from an {r,g,b} triple. */
+const rgba = (c: { r: number; g: number; b: number }, a: number) =>
+  `rgba(${c.r}, ${c.g}, ${c.b}, ${a})`;
+
+/**
+ * Sample a dominant accent color from the artwork by averaging a tiny
+ * downscaled canvas, then lifting it toward a vivid, readable tone.
+ * Runs once per thumbnail URL — zero per-frame cost.
+ */
+function useAccentColor(thumbnailUrl: string | null) {
+  const [accent, setAccent] = useState(FALLBACK_ACCENT);
+
+  useEffect(() => {
+    if (!thumbnailUrl) {
+      setAccent(FALLBACK_ACCENT);
+      return;
+    }
+    let cancelled = false;
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      if (cancelled) return;
+      try {
+        const size = 12;
+        const canvas = document.createElement("canvas");
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return;
+        ctx.drawImage(img, 0, 0, size, size);
+        const data = ctx.getImageData(0, 0, size, size).data;
+        let r = 0, g = 0, b = 0, count = 0;
+        for (let i = 0; i < data.length; i += 4) {
+          // Skip near-black / near-white pixels so letterboxing and glare
+          // don't wash out the sampled tone.
+          const lum = (data[i] + data[i + 1] + data[i + 2]) / 3;
+          if (lum < 24 || lum > 235) continue;
+          r += data[i];
+          g += data[i + 1];
+          b += data[i + 2];
+          count++;
+        }
+        if (count === 0) {
+          setAccent(FALLBACK_ACCENT);
+          return;
+        }
+        r /= count; g /= count; b /= count;
+        // Lift toward a vivid, legible accent: boost saturation + brightness.
+        const max = Math.max(r, g, b) || 1;
+        const boost = 215 / max;
+        const sat = 1.35;
+        const mean = (r + g + b) / 3;
+        const lift = (ch: number) =>
+          Math.round(Math.max(70, Math.min(255, (mean + (ch - mean) * sat) * boost)));
+        setAccent({ r: lift(r), g: lift(g), b: lift(b) });
+      } catch {
+        setAccent(FALLBACK_ACCENT);
+      }
+    };
+    img.onerror = () => { if (!cancelled) setAccent(FALLBACK_ACCENT); };
+    img.src = thumbnailUrl;
+    return () => { cancelled = true; };
+  }, [thumbnailUrl]);
+
+  return accent;
+}
+
+/* --------------------------- Scoped keyframes ----------------------------- */
+
 const CSS = `
-  .pe-glass-surface {
-    background: rgba(255, 255, 255, 0.045);
-    backdrop-filter: blur(28px);
-    -webkit-backdrop-filter: blur(28px);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
-  }
-  .pe-glass-pill {
-    background: rgba(255, 255, 255, 0.06);
-    backdrop-filter: blur(20px);
-    border: 1px solid rgba(255, 255, 255, 0.09);
-  }
-  
-  /* Live Audio Equalizer Keyframes (GPU Accelerated) */
-  @keyframes eq-scale-1 {
-    0%, 100% { transform: scaleY(0.25); }
-    50% { transform: scaleY(0.95); }
-  }
-  @keyframes eq-scale-2 {
-    0%, 100% { transform: scaleY(0.40); }
-    50% { transform: scaleY(1.00); }
-  }
-  @keyframes eq-scale-3 {
-    0%, 100% { transform: scaleY(0.20); }
-    50% { transform: scaleY(0.80); }
-  }
-  @keyframes eq-scale-4 {
-    0%, 100% { transform: scaleY(0.35); }
-    50% { transform: scaleY(0.90); }
-  }
-  .pe-eq-bar {
+  @keyframes od-eq-a { 0%,100% { transform: scaleY(0.30); } 50% { transform: scaleY(1.00); } }
+  @keyframes od-eq-b { 0%,100% { transform: scaleY(0.55); } 50% { transform: scaleY(0.22); } }
+  @keyframes od-eq-c { 0%,100% { transform: scaleY(0.40); } 50% { transform: scaleY(0.85); } }
+  @keyframes od-eq-d { 0%,100% { transform: scaleY(0.75); } 50% { transform: scaleY(0.35); } }
+  @keyframes od-eq-e { 0%,100% { transform: scaleY(0.25); } 50% { transform: scaleY(0.70); } }
+
+  .od-eq span {
+    display: block;
+    width: 3px;
+    border-radius: 99px;
+    height: 100%;
     transform-origin: bottom;
     will-change: transform;
-    height: 100%;
+    transform: scaleY(0.25);
   }
-  .pe-eq-bar-1 { animation: eq-scale-1 0.85s ease-in-out infinite; }
-  .pe-eq-bar-2 { animation: eq-scale-2 0.7s ease-in-out infinite 0.15s; }
-  .pe-eq-bar-3 { animation: eq-scale-3 0.95s ease-in-out infinite 0.3s; }
-  .pe-eq-bar-4 { animation: eq-scale-4 0.75s ease-in-out infinite 0.08s; }
-  .pe-eq-paused { animation: none !important; transform: scaleY(0.25) !important; }
+  .od-eq.playing span:nth-child(1) { animation: od-eq-a 0.92s ease-in-out infinite; }
+  .od-eq.playing span:nth-child(2) { animation: od-eq-b 0.68s ease-in-out infinite 0.12s; }
+  .od-eq.playing span:nth-child(3) { animation: od-eq-c 0.81s ease-in-out infinite 0.26s; }
+  .od-eq.playing span:nth-child(4) { animation: od-eq-d 0.74s ease-in-out infinite 0.05s; }
+  .od-eq.playing span:nth-child(5) { animation: od-eq-e 0.99s ease-in-out infinite 0.33s; }
 
   @media (prefers-reduced-motion: reduce) {
-    .pe-eq-bar-1, .pe-eq-bar-2, .pe-eq-bar-3, .pe-eq-bar-4 {
-      animation: none !important;
-      transform: scaleY(0.4) !important;
-    }
+    .od-eq.playing span { animation: none !important; transform: scaleY(0.5) !important; }
   }
 `;
 
-/* ---------------------------------------------------------------------------
- * Vector SVG Icons (Stroke-width 2px, High Contrast)
- * ------------------------------------------------------------------------- */
+/* ------------------------------- Icons ------------------------------------ */
 
 type IconProps = { size?: number; className?: string };
 
-const IconOverview = ({ size = 15, className = "" }: IconProps) => (
+const IconWifi = ({ size = 16, className = "" }: IconProps) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
-    <rect x="3" y="3" width="7" height="7" rx="1.5" />
-    <rect x="14" y="3" width="7" height="7" rx="1.5" />
-    <rect x="14" y="14" width="7" height="7" rx="1.5" />
-    <rect x="3" y="14" width="7" height="7" rx="1.5" />
-  </svg>
-);
-
-const IconMusic = ({ size = 15, className = "" }: IconProps) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
-    <path d="M9 18V5l12-2v13" />
-    <circle cx="6" cy="18" r="3" />
-    <circle cx="18" cy="16" r="3" />
-  </svg>
-);
-
-const IconTune = ({ size = 15, className = "" }: IconProps) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
-    <line x1="4" y1="21" x2="4" y2="14" />
-    <line x1="4" y1="10" x2="4" y2="3" />
-    <line x1="12" y1="21" x2="12" y2="12" />
-    <line x1="12" y1="8" x2="12" y2="3" />
-    <line x1="20" y1="21" x2="20" y2="16" />
-    <line x1="20" y1="12" x2="20" y2="3" />
-    <line x1="1" y1="14" x2="7" y2="14" />
-    <line x1="9" y1="8" x2="15" y2="8" />
-    <line x1="17" y1="16" x2="23" y2="16" />
-  </svg>
-);
-
-const IconWifi = ({ size = 17, className = "" }: IconProps) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
     <path d="M5 12.55a11 11 0 0 1 14.08 0" />
     <path d="M1.42 9a16 16 0 0 1 21.16 0" />
     <path d="M8.53 16.11a6 6 0 0 1 6.95 0" />
@@ -118,47 +143,49 @@ const IconWifi = ({ size = 17, className = "" }: IconProps) => (
   </svg>
 );
 
-const IconBluetooth = ({ size = 17, className = "" }: IconProps) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+const IconBluetooth = ({ size = 16, className = "" }: IconProps) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
     <polyline points="6.5 6.5 17.5 17.5 12 23 12 1 17.5 6.5 6.5 17.5" />
   </svg>
 );
 
-const IconLeaf = ({ size = 17, className = "" }: IconProps) => (
+const IconLeaf = ({ size = 16, className = "" }: IconProps) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
     <path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z" />
     <path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12" />
   </svg>
 );
 
-const IconCloud = ({ size = 14, className = "" }: IconProps) => (
+const IconMusic = ({ size = 16, className = "" }: IconProps) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
-    <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9z" />
+    <path d="M9 18V5l12-2v13" />
+    <circle cx="6" cy="18" r="3" />
+    <circle cx="18" cy="16" r="3" />
   </svg>
 );
 
-const IconPin = ({ size = 14, filled = false, className = "" }: IconProps & { filled?: boolean }) => (
+const IconPin = ({ size = 13, filled = false, className = "" }: IconProps & { filled?: boolean }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill={filled ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
     <line x1="12" y1="17" x2="12" y2="22" />
     <path d="M5 17h14v-2l-2-3V5a2 2 0 0 0-2-2h-6a2 2 0 0 0-2 2v7l-2 3v2z" />
   </svg>
 );
 
-const IconClose = ({ size = 14, className = "" }: IconProps) => (
+const IconClose = ({ size = 13, className = "" }: IconProps) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
     <line x1="18" y1="6" x2="6" y2="18" />
     <line x1="6" y1="6" x2="18" y2="18" />
   </svg>
 );
 
-const IconPrev = ({ size = 18, className = "" }: IconProps) => (
+const IconPrev = ({ size = 17, className = "" }: IconProps) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden="true">
     <rect x="4" y="5" width="2.6" height="14" rx="1.1" />
     <path d="M20 5.8v12.4a1 1 0 0 1-1.55.83L9.2 12.83a1 1 0 0 1 0-1.66l9.25-6.2A1 1 0 0 1 20 5.8z" />
   </svg>
 );
 
-const IconNext = ({ size = 18, className = "" }: IconProps) => (
+const IconNext = ({ size = 17, className = "" }: IconProps) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden="true">
     <rect x="17.4" y="5" width="2.6" height="14" rx="1.1" />
     <path d="M4 5.8v12.4a1 1 0 0 0 1.55.83l9.25-6.2a1 1 0 0 0 0-1.66L5.55 4.97A1 1 0 0 0 4 5.8z" />
@@ -178,7 +205,7 @@ const IconPause = ({ size = 20, className = "" }: IconProps) => (
   </svg>
 );
 
-const IconSpeaker = ({ level, size = 17, className = "" }: { level: 0 | 1 | 2; size?: number; className?: string }) => (
+const IconSpeaker = ({ level, size = 15, className = "" }: { level: 0 | 1 | 2; size?: number; className?: string }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
     <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" fill="currentColor" />
     {level === 0 && (
@@ -192,105 +219,76 @@ const IconSpeaker = ({ level, size = 17, className = "" }: { level: 0 | 1 | 2; s
   </svg>
 );
 
-const IconBolt = ({ size = 11, className = "" }: IconProps) => (
+const IconBolt = ({ size = 10, className = "" }: IconProps) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden="true">
     <path d="M13.5 2 4 14h6.5L9.5 22 20 9.5h-6.7L13.5 2z" />
   </svg>
 );
 
-/* ---------------------------------------------------------------------------
- * Apple Battery Capsule Component
- * ------------------------------------------------------------------------- */
+/* --------------------------- Battery capsule ------------------------------ */
 
-function AppleBatteryGlyph({ level, charging }: { level: number; charging: boolean }) {
+function BatteryCapsule({ level, charging }: { level: number; charging: boolean }) {
   const pct = Math.round(clamp01(level) * 100);
-  const color = charging
-    ? "#34D399" // emerald
-    : pct <= 20
-    ? "#EF4444" // red alert
-    : pct <= 35
-    ? "#F59E0B" // amber warn
-    : "#F8FAFC"; // crisp light
-
-  const fillWidth = Math.max(2, clamp01(level) * 22);
+  const color = charging ? "#4ADE80" : pct <= 20 ? "#F87171" : pct <= 35 ? "#FBBF24" : "#E7E5E4";
+  const fillWidth = Math.max(2, clamp01(level) * 20);
 
   return (
-    <div className="relative inline-flex items-center" aria-hidden="true">
-      <svg width="30" height="14" viewBox="0 0 30 14" fill="none">
-        {/* Outer pill frame */}
-        <rect x="0.75" y="0.75" width="25" height="12.5" rx="4" stroke="currentColor" strokeWidth="1.3" strokeOpacity="0.45" />
-        {/* Fill level */}
-        <rect x="2.5" y="2.5" width={fillWidth} height="9" rx="2.2" fill={color} />
-        {/* Terminal nub */}
-        <path d="M28 4.8v4.4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeOpacity="0.45" />
+    <span className="relative inline-flex items-center" aria-hidden="true">
+      <svg width="28" height="13" viewBox="0 0 28 13" fill="none">
+        <rect x="0.75" y="0.75" width="23" height="11.5" rx="3.6" stroke="currentColor" strokeWidth="1.2" strokeOpacity="0.4" />
+        <rect x="2.4" y="2.4" width={fillWidth} height="8.2" rx="2" fill={color} />
+        <path d="M26.2 4.4v4.2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeOpacity="0.4" />
       </svg>
       {charging && (
-        <span className="absolute inset-0 flex items-center justify-center text-black drop-shadow-sm pr-1">
-          <IconBolt size={10} />
+        <span className="absolute inset-0 flex items-center justify-center text-black pr-1">
+          <IconBolt size={9} />
         </span>
       )}
-    </div>
+    </span>
   );
 }
 
-/* ---------------------------------------------------------------------------
- * Tactile Switch Button
- * ------------------------------------------------------------------------- */
+/* ----------------------------- Dock toggle -------------------------------- */
 
-interface TactileSwitchProps {
+interface DockToggleProps {
   label: string;
-  sub: string;
   active: boolean;
   onToggle: (e: React.MouseEvent) => void;
-  accent: "blue" | "indigo" | "amber" | "emerald";
   icon: React.ReactNode;
+  title?: string;
 }
 
-function TactileSwitch({ label, sub, active, onToggle, accent, icon }: TactileSwitchProps) {
-  const accentClasses = {
-    blue: active
-      ? "bg-blue-500 text-white shadow-[0_4px_16px_rgba(59,130,246,0.35)] border-blue-400/50"
-      : "bg-white/[0.05] text-slate-300 hover:bg-white/[0.09] hover:text-white border-white/[0.07]",
-    indigo: active
-      ? "bg-indigo-500 text-white shadow-[0_4px_16px_rgba(99,102,241,0.35)] border-indigo-400/50"
-      : "bg-white/[0.05] text-slate-300 hover:bg-white/[0.09] hover:text-white border-white/[0.07]",
-    amber: active
-      ? "bg-amber-500 text-black shadow-[0_4px_16px_rgba(245,158,11,0.35)] border-amber-300/60"
-      : "bg-white/[0.05] text-slate-300 hover:bg-white/[0.09] hover:text-white border-white/[0.07]",
-    emerald: active
-      ? "bg-emerald-500 text-black shadow-[0_4px_16px_rgba(16,185,129,0.35)] border-emerald-300/60"
-      : "bg-white/[0.05] text-slate-300 hover:bg-white/[0.09] hover:text-white border-white/[0.07]",
-  }[accent];
-
+/**
+ * Monochrome control-center chip: active = solid white fill with black
+ * glyph; inactive = ghost outline. Cohesive with the accent-tinted panel
+ * without fighting it for attention.
+ */
+function DockToggle({ label, active, onToggle, icon, title }: DockToggleProps) {
   return (
     <motion.button
       type="button"
       role="switch"
       aria-checked={active}
-      aria-label={`${label}: ${sub}`}
-      whileTap={{ scale: 0.94 }}
-      transition={{ type: "spring", stiffness: 400, damping: 25 }}
+      aria-label={label}
+      title={title || label}
+      whileTap={{ scale: 0.93 }}
+      transition={{ type: "spring", stiffness: 420, damping: 26 }}
       onClick={onToggle}
-      className={`group relative flex-1 min-w-0 flex flex-col items-center justify-center py-2.5 px-2 rounded-2xl border transition-[transform,background-color,border-color,box-shadow] duration-200 cursor-pointer focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none ${accentClasses}`}
+      className={`flex items-center gap-2 h-9 px-3.5 rounded-full border transition-colors duration-150 cursor-pointer focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:outline-none ${
+        active
+          ? "bg-white text-black border-white shadow-[0_2px_14px_rgba(255,255,255,0.22)]"
+          : "bg-white/[0.04] text-stone-400 border-white/[0.09] hover:text-white hover:bg-white/[0.08]"
+      }`}
     >
-      <div className={`p-2 rounded-[10px] transition-[transform,color] duration-200 ${active ? "scale-105" : "text-white/70 group-hover:text-white"}`}>
-        {icon}
-      </div>
-      <div className="text-center w-full px-1">
-        <div className="text-[12px] font-bold tracking-tight truncate leading-tight">
-          {label}
-        </div>
-        <div className={`text-[10px] truncate font-medium mt-0.5 ${active ? "opacity-90" : "text-slate-400"}`}>
-          {sub}
-        </div>
-      </div>
+      {icon}
+      <span className="text-[11px] font-bold tracking-tight whitespace-nowrap">{label}</span>
     </motion.button>
   );
 }
 
-/* ---------------------------------------------------------------------------
- * Main PlayerExpanded Component
- * ------------------------------------------------------------------------- */
+/* ============================================================================
+ * Main component
+ * ========================================================================== */
 
 interface PlayerExpandedProps {
   isExpanded?: boolean;
@@ -305,6 +303,7 @@ export function PlayerExpanded({ isExpanded = true }: PlayerExpandedProps) {
     hasSession,
     title,
     artist,
+    sourceApp,
     isPlaying,
     playbackRate,
     positionMs,
@@ -314,10 +313,11 @@ export function PlayerExpanded({ isExpanded = true }: PlayerExpandedProps) {
     canPrevious,
   } = snapshot;
 
-  const [activeTab, setActiveTab] = useState<number>(0);
   const [isPinned, setIsPinned] = useState(false);
+  const accent = useAccentColor(thumbnailUrl);
 
-  /* ------------------------------ System State ------------------------------ */
+  /* ----------------------------- System state ----------------------------- */
+
   interface SystemControlsState {
     wifiEnabled: boolean;
     wifiName: string | null;
@@ -355,6 +355,7 @@ export function PlayerExpanded({ isExpanded = true }: PlayerExpandedProps) {
     fetchSystemControls();
   }, [fetchSystemControls]);
 
+  // Poll only while the panel is actually open — zero idle work.
   useEffect(() => {
     if (!isExpanded) return;
     fetchSystemControls();
@@ -389,7 +390,7 @@ export function PlayerExpanded({ isExpanded = true }: PlayerExpandedProps) {
       .catch(() => {});
   };
 
-  /* Battery API fallback */
+  /* Browser Battery API fallback (Tauri webview supports it on Windows) */
   useEffect(() => {
     let batteryInstance: any = null;
     let onLevelChange: (() => void) | null = null;
@@ -425,7 +426,8 @@ export function PlayerExpanded({ isExpanded = true }: PlayerExpandedProps) {
     };
   }, []);
 
-  /* --------------------------------- Volume --------------------------------- */
+  /* -------------------------------- Volume -------------------------------- */
+
   const [volume, setVolume] = useState<number>(0.75);
   const [isMuted, setIsMuted] = useState(false);
   const [prevVolume, setPrevVolume] = useState<number>(0.75);
@@ -524,7 +526,8 @@ export function PlayerExpanded({ isExpanded = true }: PlayerExpandedProps) {
     }
   };
 
-  /* --------------------------- Scrubber / Transport --------------------------- */
+  /* -------------------------- Scrubber / transport ------------------------- */
+
   const [displayPositionMs, setDisplayPositionMs] = useState(positionMs);
   const isDraggingScrubRef = useRef<boolean>(false);
   const scrubberTrackRef = useRef<HTMLDivElement>(null);
@@ -533,6 +536,7 @@ export function PlayerExpanded({ isExpanded = true }: PlayerExpandedProps) {
     if (!isDraggingScrubRef.current) setDisplayPositionMs(positionMs);
   }, [positionMs]);
 
+  // Local 1 Hz tick while the panel is open AND something is playing.
   useEffect(() => {
     if (!isExpanded || !hasSession || !isPlaying || durationMs <= 0) return;
     const interval = window.setInterval(() => {
@@ -571,12 +575,10 @@ export function PlayerExpanded({ isExpanded = true }: PlayerExpandedProps) {
     const dur = durationMs > 0 ? durationMs : 240000;
     if (e.key === "ArrowRight") {
       e.preventDefault();
-      const next = Math.min(dur, displayPositionMs + 5000);
-      setDisplayPositionMs(next);
+      setDisplayPositionMs(Math.min(dur, displayPositionMs + 5000));
     } else if (e.key === "ArrowLeft") {
       e.preventDefault();
-      const next = Math.max(0, displayPositionMs - 5000);
-      setDisplayPositionMs(next);
+      setDisplayPositionMs(Math.max(0, displayPositionMs - 5000));
     }
   };
 
@@ -602,585 +604,80 @@ export function PlayerExpanded({ isExpanded = true }: PlayerExpandedProps) {
     } catch {}
   };
 
-  /* ----------------------------- Derived Values ----------------------------- */
+  /* ---------------------------- Derived values ----------------------------- */
+
   const isPlaceholder = !hasSession || !title;
-  const effectiveTitle = isPlaceholder ? "Not Playing" : title;
-  const effectiveArtist = isPlaceholder ? "Start audio in any app" : artist || "Unknown Artist";
+  const effectiveTitle = isPlaceholder ? "Nothing Playing" : title;
+  const effectiveArtist = isPlaceholder ? "Start audio in any app to take control" : artist || "Unknown Artist";
   const effectiveDuration = isPlaceholder ? 0 : durationMs > 0 ? durationMs : 0;
   const effectivePosition = isPlaceholder ? 0 : displayPositionMs > 0 ? displayPositionMs : 0;
   const scrubRatio = effectiveDuration > 0 ? clamp01(effectivePosition / effectiveDuration) : 0;
 
-  /* Waveform audio silhouette (Compact & Full) */
-  const barHeightsCompact = useMemo(
-    () =>
-      Array.from({ length: BAR_COUNT_COMPACT }, (_, i) => {
-        const v = Math.abs(Math.sin(i * 1.55) * Math.cos(i * 0.45)) * 0.72 + Math.abs(Math.sin(i * 0.28)) * 0.28;
-        return 24 + v * 76;
-      }),
-    []
-  );
-
-  const barHeightsFull = useMemo(
-    () =>
-      Array.from({ length: BAR_COUNT_FULL }, (_, i) => {
-        const v = Math.abs(Math.sin(i * 0.95) * Math.cos(i * 0.35)) * 0.7 + Math.abs(Math.sin(i * 0.18)) * 0.3;
-        return 22 + v * 78;
-      }),
-    []
-  );
-
-  const playedBarsCompact = Math.round(scrubRatio * BAR_COUNT_COMPACT);
-  const playedBarsFull = Math.round(scrubRatio * BAR_COUNT_FULL);
-
   const speakerLevel: 0 | 1 | 2 = isMuted || volume === 0 ? 0 : volume > 0.5 ? 2 : 1;
   const batteryPct = Math.round(clamp01(batteryLevel) * 100);
 
-  const tabs = [
-    { label: "Overview", icon: <IconOverview size={15} /> },
-    { label: "Now Playing", icon: <IconMusic size={15} /> },
-    { label: "Controls", icon: <IconTune size={15} /> },
-  ];
+  const accentSolid = rgba(accent, 1);
+  const eyebrowText = (sourceApp || "System Media").replace(/\.exe$/i, "").toUpperCase();
 
-  /* ---------------------------------------------------------------------------
-   * View Renderers
-   * ------------------------------------------------------------------------- */
-
-  // Left Bento (Overview Tab)
-  const renderNowPlayingCompact = () => (
-    <div className="relative flex-1 min-w-0 flex flex-col justify-between p-4.5 rounded-2xl pe-glass-surface overflow-hidden">
-      {/* Ambient Album Glow behind card */}
-      {thumbnailUrl && (
-        <div
-          className="absolute -top-10 -left-10 w-44 h-44 rounded-full blur-3xl opacity-30 pointer-events-none"
-          style={{ backgroundImage: `url(${thumbnailUrl})`, backgroundSize: "cover" }}
-          aria-hidden="true"
-        />
-      )}
-
-      {/* Top row: Artwork + Meta + Equalizer */}
-      <div className="relative z-10 flex items-center gap-3.5">
-        {/* Album Artwork Squircle */}
-        <div className="relative w-14 h-14 rounded-[14px] overflow-hidden bg-white/5 border border-white/10 shadow-xl flex-shrink-0 flex items-center justify-center">
-          {thumbnailUrl ? (
-            <img
-              src={thumbnailUrl}
-              alt="Album cover"
-              className="w-full h-full object-cover outline outline-1 -outline-offset-1 outline-white/10"
-            />
-          ) : (
-            <div className="text-slate-400">
-              <IconMusic size={24} />
-            </div>
-          )}
-        </div>
-
-        {/* Track Title & Artist */}
-        <div
-          className="flex-1 min-w-0"
-          style={{
-            maskImage: "linear-gradient(to right, black 85%, transparent 100%)",
-            WebkitMaskImage: "linear-gradient(to right, black 85%, transparent 100%)",
-          }}
-        >
-          <div
-            className={`text-[15px] font-bold tracking-tight truncate leading-tight [text-wrap:balance] ${
-              isPlaceholder ? "text-slate-400 font-normal" : "text-slate-50"
-            }`}
-          >
-            {effectiveTitle}
-          </div>
-          <div className="text-[13px] text-slate-400 truncate mt-1 font-medium [text-wrap:pretty]">{effectiveArtist}</div>
-        </div>
-
-        {/* Live Audio Equalizer */}
-        <div
-          className="flex items-end gap-[2.5px] h-5 w-5 flex-shrink-0 pr-1"
-          title={isPlaying ? "Playing" : "Paused"}
-          aria-hidden="true"
-        >
-          <span className={`w-[3px] rounded-full bg-indigo-400 pe-eq-bar ${isPlaying && !isPlaceholder ? "pe-eq-bar-1" : "pe-eq-paused"}`} />
-          <span className={`w-[3px] rounded-full bg-indigo-400 pe-eq-bar ${isPlaying && !isPlaceholder ? "pe-eq-bar-2" : "pe-eq-paused"}`} />
-          <span className={`w-[3px] rounded-full bg-indigo-400 pe-eq-bar ${isPlaying && !isPlaceholder ? "pe-eq-bar-3" : "pe-eq-paused"}`} />
-          <span className={`w-[3px] rounded-full bg-indigo-400 pe-eq-bar ${isPlaying && !isPlaceholder ? "pe-eq-bar-4" : "pe-eq-paused"}`} />
-        </div>
-      </div>
-
-      {/* Mid: Waveform Scrubber */}
-      <div className="relative z-10 my-1.5">
-        <div
-          ref={scrubberTrackRef}
-          role="slider"
-          aria-label="Track progress"
-          aria-valuemin={0}
-          aria-valuemax={Math.round(effectiveDuration / 1000)}
-          aria-valuenow={Math.round(effectivePosition / 1000)}
-          onKeyDown={handleScrubKeyDown}
-          onPointerDown={handleScrubPointerDown}
-          onPointerMove={handleScrubPointerMove}
-          onPointerUp={handleScrubPointerUp}
-          className="group flex items-center justify-between gap-[2px] h-6 cursor-pointer touch-none py-1 focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none rounded-lg"
-          tabIndex={0}
-        >
-          {barHeightsCompact.map((h, i) => {
-            const isPlayed = i < playedBarsCompact;
-            return (
-              <span
-                key={i}
-                className="flex-1 rounded-[1.5px] transition-colors duration-150"
-                style={{
-                  height: `${h}%`,
-                  backgroundColor: isPlayed ? "#818CF8" : "rgba(255, 255, 255, 0.13)",
-                  boxShadow: isPlayed ? "0 0 6px rgba(129, 140, 248, 0.35)" : "none",
-                }}
-              />
-            );
-          })}
-        </div>
-
-        {/* Timestamps */}
-        <div className="flex justify-between text-[11px] font-medium text-slate-400 font-mono tracking-tight tabular-nums mt-1">
-          <span>{formatTime(effectivePosition)}</span>
-          <span>{formatTime(effectiveDuration)}</span>
-        </div>
-      </div>
-
-      {/* Bottom: Transport Controls */}
-      <div className="relative z-10 flex items-center justify-center gap-6 mt-1">
-        <motion.button
-          type="button"
-          whileTap={{ scale: 0.95 }}
-          onClick={handlePrevious}
-          disabled={hasSession && !canPrevious}
-          aria-label="Previous track"
-          className="w-10 h-10 rounded-full flex items-center justify-center text-slate-300 hover:text-white hover:bg-white/[0.08] disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none"
-        >
-          <IconPrev size={18} />
-        </motion.button>
-
-        <motion.button
-          type="button"
-          whileTap={{ scale: 0.95 }}
-          onClick={handlePlayPause}
-          disabled={hasSession && !canPlayPause}
-          aria-label={isPlaying ? "Pause" : "Play"}
-          className="w-12 h-12 rounded-full bg-white text-black flex items-center justify-center shadow-lg shadow-white/20 hover:scale-105 active:scale-95 transition-transform disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none"
-        >
-          {isPlaying ? <IconPause size={20} /> : <IconPlay size={20} className="translate-x-0.5" />}
-        </motion.button>
-
-        <motion.button
-          type="button"
-          whileTap={{ scale: 0.95 }}
-          onClick={handleNext}
-          disabled={hasSession && !canNext}
-          aria-label="Next track"
-          className="w-10 h-10 rounded-full flex items-center justify-center text-slate-300 hover:text-white hover:bg-white/[0.08] disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none"
-        >
-          <IconNext size={18} />
-        </motion.button>
-      </div>
-    </div>
+  // Static ambient tint derived from accent — painted once, zero runtime cost.
+  const ambientStyle = useMemo<React.CSSProperties>(
+    () => ({
+      background: `
+        radial-gradient(540px 260px at 18% 0%, ${rgba(accent, 0.16)}, transparent 62%),
+        radial-gradient(420px 220px at 88% 110%, ${rgba(accent, 0.09)}, transparent 60%)
+      `,
+    }),
+    [accent]
   );
 
-  // Right Bento (Overview Tab)
-  const renderSystemCompact = () => (
-    <div className="flex-1 min-w-0 flex flex-col justify-between p-4.5 rounded-2xl pe-glass-surface">
-      {/* 3 Control Center Switches */}
-      <div className="flex items-center gap-2.5">
-        <TactileSwitch
-          label="Wi-Fi"
-          sub={isWifiOn ? wifiName || "Connected" : "Off"}
-          active={isWifiOn}
-          onToggle={handleToggleWifi}
-          accent="blue"
-          icon={<IconWifi size={18} />}
-        />
-        <TactileSwitch
-          label="Bluetooth"
-          sub={isBluetoothOn ? "On" : "Off"}
-          active={isBluetoothOn}
-          onToggle={handleToggleBluetooth}
-          accent="indigo"
-          icon={<IconBluetooth size={18} />}
-        />
-        <TactileSwitch
-          label="Saver"
-          sub={isEnergySaverOn ? "Low Power" : "Off"}
-          active={isEnergySaverOn}
-          onToggle={handleToggleEnergySaver}
-          accent="amber"
-          icon={<IconLeaf size={18} />}
-        />
-      </div>
-
-      {/* Volume Controller */}
-      <div className="flex items-center gap-3 my-1.5">
-        <motion.button
-          type="button"
-          whileTap={{ scale: 0.9 }}
-          onClick={toggleMute}
-          aria-label={speakerLevel === 0 ? "Unmute" : "Mute"}
-          className={`w-10 h-10 rounded-xl flex items-center justify-center transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none ${
-            speakerLevel === 0 ? "text-slate-500 hover:text-slate-300" : "text-slate-300 hover:text-white"
-          }`}
-        >
-          <IconSpeaker level={speakerLevel} size={17} />
-        </motion.button>
-
-        <div
-          ref={volumeTrackRef}
-          role="slider"
-          aria-label="Volume level"
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={Math.round(volume * 100)}
-          onKeyDown={handleVolumeKeyDown}
-          onPointerDown={handleVolumePointerDown}
-          onPointerMove={handleVolumePointerMove}
-          onPointerUp={handleVolumePointerUp}
-          className="group relative flex-1 h-7 flex items-center cursor-pointer touch-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none rounded-lg"
-          tabIndex={0}
-        >
-          {/* Pill track */}
-          <div className="relative w-full h-2.5 bg-white/[0.08] group-hover:bg-white/[0.12] rounded-full overflow-hidden transition-colors">
-            <div
-              className="absolute top-0 left-0 h-full bg-gradient-to-r from-white/90 to-white rounded-full transition-[width] duration-75"
-              style={{ width: `${volume * 100}%` }}
-            />
-          </div>
-
-          {/* Glowing thumb on hover/drag */}
-          <div
-            className="absolute top-1/2 -translate-y-1/2 w-4 h-4 bg-white rounded-full shadow-md shadow-black/40 pointer-events-none transition-transform duration-150 group-hover:scale-125 group-active:scale-125"
-            style={{ left: `calc(${volume * 100}% - 8px)` }}
-          />
-        </div>
-
-        <span className="text-[13px] font-bold text-slate-300 font-mono tabular-nums w-8 text-right">
-          {Math.round(volume * 100)}%
-        </span>
-      </div>
-
-      {/* Bottom Bar: Battery & Status */}
-      <div className="flex items-center justify-between px-1">
-        <div className="flex items-center gap-2.5">
-          <AppleBatteryGlyph level={batteryLevel} charging={isCharging} />
-          <span className="text-[13px] font-bold text-slate-100 font-mono tabular-nums">
-            {batteryPct}%
-          </span>
-          <span className="text-[11px] font-medium text-slate-400">
-            {isCharging ? "Charging" : batteryPct <= 20 ? "Low Power" : "On Battery"}
-          </span>
-        </div>
-
-        {isEnergySaverOn && (
-          <span className="text-[11px] font-bold text-amber-400 bg-amber-400/10 px-2.5 py-0.5 rounded-full border border-amber-400/25">
-            Eco
-          </span>
-        )}
-      </div>
-    </div>
-  );
-
-  // Dedicated "Now Playing" View (Immersive Music Stage)
-  const renderNowPlayingDedicated = () => (
-    <div className="relative w-full h-full flex flex-col justify-between p-5 rounded-2xl pe-glass-surface overflow-hidden">
-      {thumbnailUrl && (
-        <div
-          className="absolute -top-16 -left-16 w-64 h-64 rounded-full blur-3xl opacity-35 pointer-events-none"
-          style={{ backgroundImage: `url(${thumbnailUrl})`, backgroundSize: "cover" }}
-          aria-hidden="true"
-        />
-      )}
-
-      {/* Header Info */}
-      <div className="relative z-10 flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <div className="relative w-16 h-16 rounded-2xl overflow-hidden bg-white/5 border border-white/10 shadow-xl flex-shrink-0 flex items-center justify-center">
-            {thumbnailUrl ? (
-              <img src={thumbnailUrl} alt="Album artwork" className="w-full h-full object-cover" />
-            ) : (
-              <div className="text-slate-400">
-                <IconMusic size={28} />
-              </div>
-            )}
-          </div>
-          <div
-            className="flex-1 min-w-0"
-            style={{
-              maskImage: "linear-gradient(to right, black 85%, transparent 100%)",
-              WebkitMaskImage: "linear-gradient(to right, black 85%, transparent 100%)",
-            }}
-          >
-            <div className="text-base font-bold text-slate-50 tracking-tight leading-tight truncate max-w-[360px]">
-              {effectiveTitle}
-            </div>
-            <div className="text-sm text-slate-400 font-medium mt-1 truncate max-w-[360px]">
-              {effectiveArtist}
-            </div>
-          </div>
-        </div>
-
-        {/* Quality Badge & Equalizer */}
-        <div className="flex items-center gap-3">
-          <span className="text-[10px] font-bold tracking-wider uppercase text-indigo-300 bg-indigo-500/15 border border-indigo-500/30 px-2.5 py-1 rounded-full">
-            Lossless
-          </span>
-          <div className="flex items-end gap-[3px] h-6 w-6 pr-1" aria-hidden="true">
-            <span className={`w-[3px] rounded-full bg-indigo-400 pe-eq-bar ${isPlaying && !isPlaceholder ? "pe-eq-bar-1" : "pe-eq-paused"}`} />
-            <span className={`w-[3px] rounded-full bg-indigo-400 pe-eq-bar ${isPlaying && !isPlaceholder ? "pe-eq-bar-2" : "pe-eq-paused"}`} />
-            <span className={`w-[3px] rounded-full bg-indigo-400 pe-eq-bar ${isPlaying && !isPlaceholder ? "pe-eq-bar-3" : "pe-eq-paused"}`} />
-            <span className={`w-[3px] rounded-full bg-indigo-400 pe-eq-bar ${isPlaying && !isPlaceholder ? "pe-eq-bar-4" : "pe-eq-paused"}`} />
-          </div>
-        </div>
-      </div>
-
-      {/* Expanded Waveform Scrubber */}
-      <div className="relative z-10 my-2">
-        <div
-          ref={scrubberTrackRef}
-          role="slider"
-          aria-label="Track progress"
-          aria-valuemin={0}
-          aria-valuemax={Math.round(effectiveDuration / 1000)}
-          aria-valuenow={Math.round(effectivePosition / 1000)}
-          onKeyDown={handleScrubKeyDown}
-          onPointerDown={handleScrubPointerDown}
-          onPointerMove={handleScrubPointerMove}
-          onPointerUp={handleScrubPointerUp}
-          className="group flex items-center justify-between gap-[2px] h-8 cursor-pointer touch-none py-1 focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none rounded-lg"
-          tabIndex={0}
-        >
-          {barHeightsFull.map((h, i) => {
-            const isPlayed = i < playedBarsFull;
-            return (
-              <span
-                key={i}
-                className="flex-1 rounded-[1.5px] transition-colors duration-150"
-                style={{
-                  height: `${h}%`,
-                  backgroundColor: isPlayed ? "#818CF8" : "rgba(255, 255, 255, 0.12)",
-                  boxShadow: isPlayed ? "0 0 6px rgba(129, 140, 248, 0.4)" : "none",
-                }}
-              />
-            );
-          })}
-        </div>
-
-        <div className="flex justify-between text-xs font-medium text-slate-400 font-mono tabular-nums mt-1">
-          <span>{formatTime(effectivePosition)}</span>
-          <span>{formatTime(effectiveDuration)}</span>
-        </div>
-      </div>
-
-      {/* Transport & Actions */}
-      <div className="relative z-10 flex items-center justify-center gap-8">
-        <motion.button
-          type="button"
-          whileTap={{ scale: 0.95 }}
-          onClick={handlePrevious}
-          disabled={hasSession && !canPrevious}
-          aria-label="Previous track"
-          className="w-11 h-11 rounded-full flex items-center justify-center text-slate-300 hover:text-white hover:bg-white/[0.08] disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none"
-        >
-          <IconPrev size={20} />
-        </motion.button>
-
-        <motion.button
-          type="button"
-          whileTap={{ scale: 0.95 }}
-          onClick={handlePlayPause}
-          disabled={hasSession && !canPlayPause}
-          aria-label={isPlaying ? "Pause" : "Play"}
-          className="w-13 h-13 rounded-full bg-white text-black flex items-center justify-center shadow-xl shadow-white/20 hover:scale-105 active:scale-95 transition-transform disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none"
-        >
-          {isPlaying ? <IconPause size={22} /> : <IconPlay size={22} className="translate-x-0.5" />}
-        </motion.button>
-
-        <motion.button
-          type="button"
-          whileTap={{ scale: 0.95 }}
-          onClick={handleNext}
-          disabled={hasSession && !canNext}
-          aria-label="Next track"
-          className="w-11 h-11 rounded-full flex items-center justify-center text-slate-300 hover:text-white hover:bg-white/[0.08] disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none"
-        >
-          <IconNext size={20} />
-        </motion.button>
-      </div>
-    </div>
-  );
-
-  // Dedicated "Controls" View (Hardware Dashboard Mode)
-  const renderControlsDedicated = () => (
-    <div className="w-full h-full flex flex-col justify-between p-5 rounded-2xl pe-glass-surface">
-      {/* Top: 3 Large Control Center Cards */}
-      <div className="grid grid-cols-3 gap-3.5">
-        <TactileSwitch
-          label="Wi-Fi"
-          sub={isWifiOn ? wifiName || "Connected" : "Off"}
-          active={isWifiOn}
-          onToggle={handleToggleWifi}
-          accent="blue"
-          icon={<IconWifi size={20} />}
-        />
-        <TactileSwitch
-          label="Bluetooth"
-          sub={isBluetoothOn ? "On" : "Off"}
-          active={isBluetoothOn}
-          onToggle={handleToggleBluetooth}
-          accent="indigo"
-          icon={<IconBluetooth size={20} />}
-        />
-        <TactileSwitch
-          label="Energy Saver"
-          sub={isEnergySaverOn ? "Active" : "Disabled"}
-          active={isEnergySaverOn}
-          onToggle={handleToggleEnergySaver}
-          accent="amber"
-          icon={<IconLeaf size={20} />}
-        />
-      </div>
-
-      {/* Mid: Master Volume Slider with Haptic Pill */}
-      <div className="flex items-center gap-4 p-3 rounded-2xl bg-white/[0.03] border border-white/[0.06]">
-        <motion.button
-          type="button"
-          whileTap={{ scale: 0.9 }}
-          onClick={toggleMute}
-          aria-label={speakerLevel === 0 ? "Unmute" : "Mute"}
-          className={`p-2.5 rounded-xl transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none ${
-            speakerLevel === 0 ? "text-slate-500 hover:text-slate-300" : "text-slate-200 hover:text-white"
-          }`}
-        >
-          <IconSpeaker level={speakerLevel} size={20} />
-        </motion.button>
-
-        <div
-          ref={volumeTrackRef}
-          role="slider"
-          aria-label="Volume level"
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={Math.round(volume * 100)}
-          onKeyDown={handleVolumeKeyDown}
-          onPointerDown={handleVolumePointerDown}
-          onPointerMove={handleVolumePointerMove}
-          onPointerUp={handleVolumePointerUp}
-          className="group relative flex-1 h-8 flex items-center cursor-pointer touch-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none rounded-lg"
-          tabIndex={0}
-        >
-          <div className="relative w-full h-3 bg-white/[0.08] group-hover:bg-white/[0.12] rounded-full overflow-hidden transition-colors">
-            <div
-              className="absolute top-0 left-0 h-full bg-gradient-to-r from-indigo-400 to-white rounded-full transition-[width] duration-75"
-              style={{ width: `${volume * 100}%` }}
-            />
-          </div>
-          <div
-            className="absolute top-1/2 -translate-y-1/2 w-4.5 h-4.5 bg-white rounded-full shadow-lg shadow-black/50 pointer-events-none transition-transform duration-150 group-hover:scale-125 group-active:scale-125"
-            style={{ left: `calc(${volume * 100}% - 9px)` }}
-          />
-        </div>
-
-        <span className="text-sm font-bold text-slate-200 font-mono tabular-nums w-10 text-right">
-          {Math.round(volume * 100)}%
-        </span>
-      </div>
-
-      {/* Bottom: Battery Hardware Glance */}
-      <div className="flex items-center justify-between px-2">
-        <div className="flex items-center gap-3">
-          <AppleBatteryGlyph level={batteryLevel} charging={isCharging} />
-          <div className="flex flex-col">
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-bold text-slate-100 font-mono tabular-nums">
-                {batteryPct}%
-              </span>
-              <span className="text-xs text-slate-400 font-medium">
-                {isCharging ? "Charging" : batteryPct <= 20 ? "Low Power" : "On Battery"}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2">
-          {isEnergySaverOn && (
-            <span className="text-xs font-bold text-amber-400 bg-amber-400/10 px-3 py-1 rounded-full border border-amber-400/25">
-              Eco Mode
-            </span>
-          )}
-          <span className="text-xs font-semibold text-slate-400 bg-white/[0.05] border border-white/[0.07] px-3 py-1 rounded-full">
-            Windows Media
-          </span>
-        </div>
-      </div>
-    </div>
-  );
+  /* -------------------------------- Render -------------------------------- */
 
   return (
     <div
-      className="relative w-full h-full flex flex-col justify-between px-6 pt-3.5 pb-4.5 select-none text-slate-100 font-sans pointer-events-auto"
+      className="relative w-full h-full flex flex-col select-none text-stone-100 font-sans pointer-events-auto px-6 pt-3 pb-4 overflow-hidden"
       onClick={(e) => e.stopPropagation()}
     >
       <style>{CSS}</style>
 
-      {/* =========================================================================
-       * TOP BAR: Segmented Pill Switcher & Quick Utility Chips
-       * ========================================================================= */}
-      <div className="flex items-center justify-between h-8 px-1 flex-shrink-0">
-        {/* Sliding Segmented Pill */}
-        <div
-          role="tablist"
-          aria-label="Expanded island modes"
-          className="relative flex items-center p-1 bg-white/[0.05] border border-white/[0.07] rounded-full"
-        >
-          {tabs.map((tab, idx) => {
-            const isCurrent = activeTab === idx;
-            return (
-              <button
-                key={tab.label}
-                type="button"
-                role="tab"
-                aria-selected={isCurrent}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setActiveTab(idx);
-                }}
-                className={`relative z-10 flex items-center gap-2 px-3.5 py-1.5 text-xs font-semibold rounded-full transition-colors duration-200 cursor-pointer focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none ${
-                  isCurrent ? "text-white" : "text-slate-400 hover:text-slate-200"
-                }`}
-              >
-                {isCurrent && (
-                  <motion.div
-                    layoutId="activeTabIndicator"
-                    transition={{ type: "spring", stiffness: 450, damping: 35 }}
-                    className="absolute inset-0 bg-white/[0.14] border border-white/[0.12] rounded-full shadow-sm"
-                  />
-                )}
-                <span className="relative z-10">{tab.icon}</span>
-                <span className="relative z-10 text-[12px] tracking-tight">{tab.label}</span>
-              </button>
-            );
-          })}
+      {/* Ambient accent wash */}
+      <div className="absolute inset-0 pointer-events-none" style={ambientStyle} aria-hidden="true" />
+
+      {/* ====================================================================
+       *  HEADER — eyebrow source label · equalizer · pin · close
+       * ==================================================================== */}
+      <div className="relative z-10 flex items-center justify-between h-7 flex-shrink-0">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <span
+            className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+            style={{ backgroundColor: accentSolid, boxShadow: `0 0 8px ${rgba(accent, 0.8)}` }}
+            aria-hidden="true"
+          />
+          <span className="text-[10px] font-bold tracking-[0.18em] text-stone-400 truncate">
+            {eyebrowText}
+          </span>
+          <span className="w-px h-3 bg-white/15 flex-shrink-0" aria-hidden="true" />
+          <span className="text-[10px] font-semibold tracking-[0.18em] text-stone-500 whitespace-nowrap">
+            NOW PLAYING
+          </span>
+
+          {/* Equalizer — animates only while playing */}
+          <div
+            className={`od-eq flex items-end gap-[2.5px] h-3.5 ml-1 ${isPlaying && !isPlaceholder ? "playing" : ""}`}
+            title={isPlaying ? "Playing" : "Paused"}
+            aria-hidden="true"
+          >
+            <span style={{ backgroundColor: accentSolid }} />
+            <span style={{ backgroundColor: accentSolid }} />
+            <span style={{ backgroundColor: accentSolid }} />
+            <span style={{ backgroundColor: accentSolid }} />
+            <span style={{ backgroundColor: accentSolid }} />
+          </div>
         </div>
 
-        {/* Right Utility Island */}
-        <div className="flex items-center gap-2.5">
-          {/* Weather Glance Pill */}
-          <div
-            className="flex items-center gap-2 px-3 py-1.5 rounded-full pe-glass-pill text-xs font-semibold text-slate-300"
-            title="Weather: 33°C Clear"
-          >
-            <IconCloud size={14} className="text-sky-300" />
-            <span className="font-bold text-white tracking-tight">33°C</span>
-          </div>
-
-          <span className="w-px h-4 bg-white/10" aria-hidden="true" />
-
-          {/* Pin Toggle */}
+        <div className="flex items-center gap-1.5">
           <motion.button
             type="button"
-            whileTap={{ scale: 0.95 }}
+            whileTap={{ scale: 0.92 }}
             onClick={(e) => {
               e.stopPropagation();
               setIsPinned(!isPinned);
@@ -1188,77 +685,266 @@ export function PlayerExpanded({ isExpanded = true }: PlayerExpandedProps) {
             aria-label="Pin island"
             aria-pressed={isPinned}
             title={isPinned ? "Unpin island" : "Pin island"}
-            className={`p-2 rounded-full transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:outline-none ${
+            className={`w-7 h-7 rounded-full flex items-center justify-center transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:outline-none ${
               isPinned
-                ? "text-indigo-300 bg-indigo-500/20 border border-indigo-500/40"
-                : "text-slate-400 hover:text-white hover:bg-white/[0.08]"
+                ? "text-black bg-white"
+                : "text-stone-500 hover:text-white hover:bg-white/[0.08]"
             }`}
           >
-            <IconPin size={14} filled={isPinned} />
+            <IconPin size={12} filled={isPinned} />
           </motion.button>
 
-          {/* Close / Collapse Island */}
           <motion.button
             type="button"
-            whileTap={{ scale: 0.95 }}
+            whileTap={{ scale: 0.92 }}
             onClick={(e) => {
               e.stopPropagation();
               toIdle();
             }}
             aria-label="Close island"
             title="Collapse"
-            className="p-2 rounded-full text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-rose-400 focus-visible:outline-none"
+            className="w-7 h-7 rounded-full flex items-center justify-center text-stone-500 hover:text-white hover:bg-white/[0.08] transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:outline-none"
           >
-            <IconClose size={14} />
+            <IconClose size={12} />
           </motion.button>
         </div>
       </div>
 
-      {/* =========================================================================
-       * MAIN CONTENT STAGE (Animated Tab Switching)
-       * ========================================================================= */}
-      <div className="flex-1 min-h-0 mt-3">
-        <AnimatePresence mode="wait">
-          {activeTab === 0 && (
-            <motion.div
-              key="tab-overview"
-              initial={{ opacity: 0, scale: 0.98, y: 3 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.98, y: -3 }}
-              transition={{ duration: 0.16, ease: [0.23, 1, 0.32, 1] }}
-              className="w-full h-full flex gap-3.5"
-            >
-              {renderNowPlayingCompact()}
-              {renderSystemCompact()}
-            </motion.div>
-          )}
+      {/* ====================================================================
+       *  MAIN STAGE — artwork hero · title block · progress · transport
+       * ==================================================================== */}
+      <div className="relative z-10 flex items-stretch gap-5 mt-2.5 flex-1 min-h-0">
+        {/* Artwork hero */}
+        <div className="relative flex-shrink-0 w-[142px] self-center">
+          <div
+            className="relative w-[142px] h-[142px] rounded-[22px] overflow-hidden flex items-center justify-center"
+            style={{
+              backgroundColor: "rgba(255,255,255,0.04)",
+              border: "1px solid rgba(255,255,255,0.10)",
+              boxShadow: `0 18px 44px -14px ${rgba(accent, 0.45)}, 0 4px 18px rgba(0,0,0,0.6)`,
+            }}
+          >
+            {thumbnailUrl ? (
+              <img src={thumbnailUrl} alt="Album artwork" className="w-full h-full object-cover" />
+            ) : (
+              <div className="flex flex-col items-center gap-2 text-stone-600">
+                <IconMusic size={34} />
+              </div>
+            )}
+            {/* Hairline inner stroke for depth */}
+            <div
+              className="absolute inset-0 rounded-[22px] pointer-events-none"
+              style={{ boxShadow: "inset 0 1px 0 rgba(255,255,255,0.14), inset 0 0 0 1px rgba(255,255,255,0.05)" }}
+              aria-hidden="true"
+            />
+          </div>
+        </div>
 
-          {activeTab === 1 && (
-            <motion.div
-              key="tab-now-playing"
-              initial={{ opacity: 0, scale: 0.98, y: 3 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.98, y: -3 }}
-              transition={{ duration: 0.16, ease: [0.23, 1, 0.32, 1] }}
-              className="w-full h-full"
+        {/* Right column */}
+        <div className="flex-1 min-w-0 flex flex-col justify-center gap-1">
+          {/* Title block — oversized editorial type */}
+          <div
+            className="min-w-0"
+            style={{
+              maskImage: "linear-gradient(to right, black 88%, transparent 100%)",
+              WebkitMaskImage: "linear-gradient(to right, black 88%, transparent 100%)",
+            }}
+          >
+            <div
+              className={`text-[21px] leading-[1.15] font-extrabold tracking-[-0.02em] truncate ${
+                isPlaceholder ? "text-stone-500" : "text-stone-50"
+              }`}
             >
-              {renderNowPlayingDedicated()}
-            </motion.div>
-          )}
+              {effectiveTitle}
+            </div>
+            <div className="text-[13px] text-stone-400 font-medium truncate mt-0.5">
+              {effectiveArtist}
+            </div>
+          </div>
 
-          {activeTab === 2 && (
-            <motion.div
-              key="tab-controls"
-              initial={{ opacity: 0, scale: 0.98, y: 3 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.98, y: -3 }}
-              transition={{ duration: 0.16, ease: [0.23, 1, 0.32, 1] }}
-              className="w-full h-full"
+          {/* Progress line */}
+          <div className="mt-2.5">
+            <div
+              ref={scrubberTrackRef}
+              role="slider"
+              aria-label="Track progress"
+              aria-valuemin={0}
+              aria-valuemax={Math.round(effectiveDuration / 1000)}
+              aria-valuenow={Math.round(effectivePosition / 1000)}
+              onKeyDown={handleScrubKeyDown}
+              onPointerDown={handleScrubPointerDown}
+              onPointerMove={handleScrubPointerMove}
+              onPointerUp={handleScrubPointerUp}
+              className="group relative h-6 flex items-center cursor-pointer touch-none focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:outline-none rounded-lg"
+              tabIndex={0}
             >
-              {renderControlsDedicated()}
-            </motion.div>
+              {/* Track */}
+              <div className="relative w-full h-[4px] group-hover:h-[6px] rounded-full bg-white/[0.10] overflow-hidden transition-[height] duration-150">
+                <div
+                  className="absolute top-0 left-0 h-full rounded-full"
+                  style={{
+                    width: `${scrubRatio * 100}%`,
+                    background: `linear-gradient(90deg, ${rgba(accent, 0.75)}, ${accentSolid})`,
+                    boxShadow: `0 0 10px ${rgba(accent, 0.5)}`,
+                  }}
+                />
+              </div>
+              {/* Thumb */}
+              <div
+                className="absolute top-1/2 -translate-y-1/2 w-3 h-3 rounded-full pointer-events-none opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 group-active:opacity-100 transition-opacity duration-150"
+                style={{
+                  left: `calc(${scrubRatio * 100}% - 6px)`,
+                  backgroundColor: "#fff",
+                  boxShadow: `0 0 0 3px rgba(0,0,0,0.5), 0 0 12px ${rgba(accent, 0.7)}`,
+                }}
+                aria-hidden="true"
+              />
+            </div>
+
+            <div className="flex justify-between text-[11px] font-medium text-stone-500 font-mono tabular-nums -mt-0.5">
+              <span>{formatTime(effectivePosition)}</span>
+              <span>{effectiveDuration > 0 ? `−${formatTime(Math.max(0, effectiveDuration - effectivePosition))}` : "0:00"}</span>
+            </div>
+          </div>
+
+          {/* Transport */}
+          <div className="flex items-center justify-center gap-7 mt-0.5">
+            <motion.button
+              type="button"
+              whileTap={{ scale: 0.92 }}
+              onClick={handlePrevious}
+              disabled={hasSession && !canPrevious}
+              aria-label="Previous track"
+              className="w-10 h-10 rounded-full flex items-center justify-center text-stone-300 hover:text-white hover:bg-white/[0.08] disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:outline-none"
+            >
+              <IconPrev size={18} />
+            </motion.button>
+
+            <motion.button
+              type="button"
+              whileTap={{ scale: 0.94 }}
+              onClick={handlePlayPause}
+              disabled={hasSession && !canPlayPause}
+              aria-label={isPlaying ? "Pause" : "Play"}
+              className="w-12 h-12 rounded-full flex items-center justify-center text-black disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-transform hover:scale-105 active:scale-95 focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:outline-none"
+              style={{
+                background: `linear-gradient(180deg, #fff, ${rgba({ r: Math.min(255, accent.r + 40), g: Math.min(255, accent.g + 40), b: Math.min(255, accent.b + 40) }, 0.9)})`,
+                boxShadow: `0 6px 22px -4px ${rgba(accent, 0.6)}, 0 2px 8px rgba(0,0,0,0.5)`,
+              }}
+            >
+              {isPlaying ? <IconPause size={20} /> : <IconPlay size={20} className="translate-x-0.5" />}
+            </motion.button>
+
+            <motion.button
+              type="button"
+              whileTap={{ scale: 0.92 }}
+              onClick={handleNext}
+              disabled={hasSession && !canNext}
+              aria-label="Next track"
+              className="w-10 h-10 rounded-full flex items-center justify-center text-stone-300 hover:text-white hover:bg-white/[0.08] disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:outline-none"
+            >
+              <IconNext size={18} />
+            </motion.button>
+          </div>
+        </div>
+      </div>
+
+      {/* ====================================================================
+       *  SYSTEM DOCK — toggles · volume · battery (single hairline strip)
+       * ==================================================================== */}
+      <div
+        className="relative z-10 flex items-center gap-3 mt-3 px-3 h-[52px] rounded-[18px] flex-shrink-0"
+        style={{
+          backgroundColor: "rgba(255,255,255,0.035)",
+          border: "1px solid rgba(255,255,255,0.08)",
+          boxShadow: "inset 0 1px 0 rgba(255,255,255,0.06)",
+        }}
+      >
+        <DockToggle
+          label="Wi-Fi"
+          title={isWifiOn ? `Wi-Fi: ${wifiName}` : "Wi-Fi: Off"}
+          active={isWifiOn}
+          onToggle={handleToggleWifi}
+          icon={<IconWifi size={14} />}
+        />
+        <DockToggle
+          label="Bluetooth"
+          title={isBluetoothOn ? "Bluetooth: On" : "Bluetooth: Off"}
+          active={isBluetoothOn}
+          onToggle={handleToggleBluetooth}
+          icon={<IconBluetooth size={14} />}
+        />
+        <DockToggle
+          label="Saver"
+          title={isEnergySaverOn ? "Energy Saver: On" : "Energy Saver: Off"}
+          active={isEnergySaverOn}
+          onToggle={handleToggleEnergySaver}
+          icon={<IconLeaf size={14} />}
+        />
+
+        <span className="w-px h-6 bg-white/10 flex-shrink-0" aria-hidden="true" />
+
+        {/* Volume */}
+        <div className="flex items-center gap-2 flex-1 min-w-0">
+          <motion.button
+            type="button"
+            whileTap={{ scale: 0.9 }}
+            onClick={toggleMute}
+            aria-label={speakerLevel === 0 ? "Unmute" : "Mute"}
+            className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:outline-none ${
+              speakerLevel === 0 ? "text-stone-600 hover:text-stone-400" : "text-stone-300 hover:text-white"
+            }`}
+          >
+            <IconSpeaker level={speakerLevel} size={15} />
+          </motion.button>
+
+          <div
+            ref={volumeTrackRef}
+            role="slider"
+            aria-label="Volume level"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.round(volume * 100)}
+            onKeyDown={handleVolumeKeyDown}
+            onPointerDown={handleVolumePointerDown}
+            onPointerMove={handleVolumePointerMove}
+            onPointerUp={handleVolumePointerUp}
+            className="group relative flex-1 min-w-[70px] h-7 flex items-center cursor-pointer touch-none focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:outline-none rounded-lg"
+            tabIndex={0}
+          >
+            <div className="relative w-full h-[4px] group-hover:h-[6px] bg-white/[0.10] rounded-full overflow-hidden transition-[height] duration-150">
+              <div
+                className="absolute top-0 left-0 h-full bg-white rounded-full"
+                style={{ width: `${volume * 100}%` }}
+              />
+            </div>
+            <div
+              className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full shadow-md shadow-black/50 pointer-events-none opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 group-active:opacity-100 transition-opacity duration-150"
+              style={{ left: `calc(${volume * 100}% - 6px)` }}
+              aria-hidden="true"
+            />
+          </div>
+
+          <span className="text-[11px] font-bold text-stone-400 font-mono tabular-nums w-8 text-right flex-shrink-0">
+            {Math.round(volume * 100)}%
+          </span>
+        </div>
+
+        <span className="w-px h-6 bg-white/10 flex-shrink-0" aria-hidden="true" />
+
+        {/* Battery glance */}
+        <div
+          className="flex items-center gap-2 flex-shrink-0 pr-1"
+          title={isCharging ? `Battery ${batteryPct}% — Charging` : `Battery ${batteryPct}%`}
+        >
+          <BatteryCapsule level={batteryLevel} charging={isCharging} />
+          <span className="text-[12px] font-bold text-stone-200 font-mono tabular-nums">{batteryPct}%</span>
+          {isEnergySaverOn && (
+            <span className="text-[10px] font-bold text-amber-300 bg-amber-400/10 border border-amber-400/25 px-2 py-[2px] rounded-full">
+              Eco
+            </span>
           )}
-        </AnimatePresence>
+        </div>
       </div>
     </div>
   );
