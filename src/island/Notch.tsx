@@ -22,8 +22,6 @@ import {
   IDLE_NOTCH_WIDTH,
   ISLAND_TOP_GAP,
   PEEK_BOTTOM_RADIUS,
-  PEEK_NOTCH_HEIGHT,
-  PEEK_NOTCH_WIDTH,
   PEEK_SPRING,
   REDUCED_MOTION_DURATION,
   calculateHitRegionDimensions,
@@ -35,6 +33,7 @@ import { useHoverIntent } from "./useHoverIntent";
 import { useMediaStore } from "../store/mediaStore";
 import { useMediaSync } from "./media/useMediaSync";
 import { PlayerExpanded } from "./media/PlayerExpanded";
+import { IslandCollapsedContent, getPillWidthNumeric } from "./media/IslandCollapsed";
 
 import {
   ACTIVITY_PEEK_WIDTH,
@@ -64,9 +63,9 @@ export default function Notch({
   // Synchronize Windows GSMTC media state
   useMediaSync();
   const mediaSnapshot = useMediaStore((s) => s.snapshot);
-  const thumbnailUrl = useMediaStore((s) => s.thumbnailUrl);
 
   const mode = useIslandStore((s) => s.mode);
+  const collapsedMode = useIslandStore((s) => s.collapsedMode);
   const prevModeRef = useRef<IslandMode>("idle");
   const reducedMotion = useReducedMotion();
   const { onMouseEnter, onMouseLeave, onClick } = useHoverIntent();
@@ -87,6 +86,8 @@ export default function Notch({
 
   const hasActiveActivity = currentActivity !== null && mode !== "expanded";
 
+  const peekWidth = getPillWidthNumeric(collapsedMode);
+
   const targets = {
     idle: {
       width: IDLE_NOTCH_WIDTH,
@@ -94,8 +95,8 @@ export default function Notch({
       bottomRadius: IDLE_BOTTOM_RADIUS,
     },
     peek: {
-      width: PEEK_NOTCH_WIDTH,
-      height: PEEK_NOTCH_HEIGHT,
+      width: peekWidth,
+      height: 42,
       bottomRadius: PEEK_BOTTOM_RADIUS,
     },
     expanded: {
@@ -372,124 +373,7 @@ export default function Notch({
           }`}
           onClick={handleClick}
         >
-          {mediaSnapshot.hasSession && mediaSnapshot.title ? (
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "8px",
-                maxWidth: "100%",
-                overflow: "hidden",
-                padding: "0 4px",
-              }}
-            >
-              {/* 20px thumbnail */}
-              <div
-                style={{
-                  width: "20px",
-                  height: "20px",
-                  borderRadius: "4px",
-                  overflow: "hidden",
-                  backgroundColor: "rgba(255, 255, 255, 0.10)",
-                  flexShrink: 0,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                {thumbnailUrl ? (
-                  <img
-                    src={thumbnailUrl}
-                    alt=""
-                    style={{
-                      width: "100%",
-                      height: "100%",
-                      objectFit: "cover",
-                    }}
-                  />
-                ) : (
-                  <svg
-                    width="12"
-                    height="12"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="rgba(255, 255, 255, 0.5)"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M9 18V5l12-2v13" />
-                    <circle cx="6" cy="18" r="3" />
-                    <circle cx="18" cy="16" r="3" />
-                  </svg>
-                )}
-              </div>
-              <span
-                style={{
-                  fontSize: "12px",
-                  fontWeight: 500,
-                  color: "rgba(255, 255, 255, 0.82)",
-                  letterSpacing: "-0.01em",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {mediaSnapshot.title}
-                {mediaSnapshot.artist ? ` - ${mediaSnapshot.artist}` : ""}
-              </span>
-            </div>
-          ) : (
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "8px",
-                maxWidth: "100%",
-                overflow: "hidden",
-                padding: "0 4px",
-              }}
-            >
-              <div
-                style={{
-                  width: "20px",
-                  height: "20px",
-                  borderRadius: "4px",
-                  backgroundColor: "rgba(255, 255, 255, 0.10)",
-                  flexShrink: 0,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                <svg
-                  width="12"
-                  height="12"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="rgba(255, 255, 255, 0.6)"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M9 18V5l12-2v13" />
-                  <circle cx="6" cy="18" r="3" />
-                  <circle cx="18" cy="16" r="3" />
-                </svg>
-              </div>
-              <span
-                style={{
-                  fontSize: "12px",
-                  fontWeight: 500,
-                  color: "rgba(255, 255, 255, 0.75)",
-                  letterSpacing: "-0.01em",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                Play something
-              </span>
-            </div>
-          )}
+          <IslandCollapsedContent />
         </motion.div>
 
         {/* 1.5 Live Activity Overlay: clean glanceable card inside peek shape */}

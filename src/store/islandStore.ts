@@ -16,9 +16,24 @@ import { create } from "zustand";
  */
 export type IslandMode = "idle" | "peek" | "expanded";
 
+export type CollapsedMode =
+  | "music"
+  | "charging_connected"
+  | "charging_disconnected"
+  | "wifi_connected"
+  | "wifi_disconnected"
+  | "bluetooth_connected"
+  | "bluetooth_disconnected"
+  | "airplane_on"
+  | "airplane_off"
+  | "low_power";
+
 interface IslandState {
   mode: IslandMode;
+  collapsedMode: CollapsedMode;
   setMode: (mode: IslandMode) => void;
+  setCollapsedMode: (collapsedMode: CollapsedMode) => void;
+  expand: () => void;
   toPeek: () => void;
   toExpanded: () => void;
   toIdle: () => void;
@@ -26,7 +41,10 @@ interface IslandState {
 
 export const useIslandStore = create<IslandState>((set) => ({
   mode: "idle",
+  collapsedMode: "music",
   setMode: (mode) => set({ mode }),
+  setCollapsedMode: (collapsedMode) => set({ collapsedMode }),
+  expand: () => set({ mode: "expanded" }),
   toPeek: () => set({ mode: "peek" }),
   toExpanded: () => set({ mode: "expanded" }),
   toIdle: () => set({ mode: "idle" }),

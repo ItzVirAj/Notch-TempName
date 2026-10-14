@@ -1,8 +1,8 @@
 export type NotchVariant = "notch" | "island";
 
-// Fixed native window dimensions (680x440)
-export const WINDOW_WIDTH = 680;
-export const WINDOW_HEIGHT = 440;
+// Fixed native window dimensions (scaled for 1.15x expanded view)
+export const WINDOW_WIDTH = 780;
+export const WINDOW_HEIGHT = 480;
 
 // Universal flare and island gap
 export const DEFAULT_FLARE_RADIUS = 12;
@@ -33,12 +33,12 @@ export const ACTIVITY_DEDUPE_WINDOW_MS = 1500;
 export const ACTIVITY_INITIAL_SUPPRESSION_MS = 3000;
 export const ACTIVITY_MAX_QUEUE_SIZE = 3;
 
-// State 3: Expanded
-export const EXPANDED_NOTCH_WIDTH = 580;
-export const EXPANDED_NOTCH_HEIGHT_COMPACT = 255;
-export const EXPANDED_NOTCH_HEIGHT_WITH_MEDIA = 255;
-export const EXPANDED_NOTCH_HEIGHT = 255;
-export const EXPANDED_BOTTOM_RADIUS = 28;
+// State 3: Expanded (Scaled 1.15x: 580*1.15=667, 255*1.15=294, 28*1.15=32)
+export const EXPANDED_NOTCH_WIDTH = 667;
+export const EXPANDED_NOTCH_HEIGHT_COMPACT = 294;
+export const EXPANDED_NOTCH_HEIGHT_WITH_MEDIA = 294;
+export const EXPANDED_NOTCH_HEIGHT = 294;
+export const EXPANDED_BOTTOM_RADIUS = 32;
 
 // Backward-compatibility aliases
 export const DEFAULT_NOTCH_WIDTH = IDLE_NOTCH_WIDTH;
